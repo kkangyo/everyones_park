@@ -1,10 +1,5 @@
 import { Callbacks, Client, type Room } from "@colyseus/sdk";
-import { COLYSEUS_PATH, NICKNAME_MAX_LENGTH, ROOM_NAME, type JoinOptions, type PlayerView } from "@park/shared";
-
-/** 서버 상태 중 클라이언트가 읽는 부분 */
-export interface ParkStateView {
-  players: Map<string, PlayerView>;
-}
+import { COLYSEUS_PATH, NICKNAME_MAX_LENGTH, ROOM_NAME, type JoinOptions, type ParkStateView, type PlayerView } from "@park/shared";
 
 export type ParkRoom = Room<any, ParkStateView>;
 
@@ -20,6 +15,7 @@ export async function joinPark(options: JoinOptions): Promise<ParkRoom> {
  * (SDK 타입 추론은 서버 Schema 클래스가 있어야 동작하는데, 클라이언트는 서버 코드를 import 하지 않는다)
  */
 export interface ParkStateCallbacks {
+  listen(property: "tick", handler: (value: number, previous: number) => void): () => void;
   onAdd(collection: "players", handler: (player: PlayerView, sessionId: string) => void): () => void;
   onRemove(collection: "players", handler: (player: PlayerView, sessionId: string) => void): () => void;
   onChange(instance: PlayerView, handler: () => void): () => void;

@@ -1,0 +1,31 @@
+# 폰 서버 앞단. 클라이언트 빌드 파일을 직접 주고, 게임 관련 경로는 Node 서버로 넘긴다.
+# 개발 때 Vite 프록시(apps/client/vite.config.ts)가 하던 일과 같다.
+# 환경변수는 deploy/ecosystem.config.cjs 에서 넣는다.
+
+{
+	# 관리 API 는 폰 안에서만
+	admin localhost:2019
+}
+
+{$SITE_ADDRESS::3100} {
+	encode zstd gzip
+
+	# Colyseus 매치메이킹 + 웹소켓. 앞의 /colyseus 는 떼고 넘긴다
+	handle_path /colyseus/* {
+		reverse_proxy {$GAME_SERVER}
+	}
+	handle /health {
+		reverse_proxy {$GAME_SERVER}
+	}
+	handle /api/* {
+		reverse_proxy {$GAME_SERVER}
+	}
+
+	handle {
+		root * {$CLIENT_DIST}
+		# 빌드할 때 파일 이름에 해시가 붙는 JS 는 오래 캐시, 페이지는 매번 확인
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+		file_server
+	}
+}

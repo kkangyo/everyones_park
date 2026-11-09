@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import {
+  TICK_MS,
   TILE_SIZE,
   collisionGridFromTiled,
   findPath,
@@ -11,13 +12,17 @@ import {
   type CollisionGrid,
   type Vec2,
 } from "@park/shared";
-import { DEPTH, MAP, PROP_SPRITES, TILESET } from "../assets";
-import { DEV_KEYS } from "../debug";
+import { CHARACTER, DEPTH, MAP, PROP_SPRITES, TILESET, idleFrame } from "../assets";
+import { DEBUG, DEV_KEYS, LAG_MS } from "../debug";
 import { Player } from "../entities/Player";
 import { KeyboardMove } from "../input/keyboard";
 import { PathFollower } from "../input/pathFollower";
 import { tempNickname } from "../net/connection";
-import { ParkSync, type NetInfo } from "../net/ParkSync";
+import { ParkSync, type NetInfo, type OwnServerState } from "../net/ParkSync";
+import { Prediction } from "../net/Prediction";
+
+/** 탭이 멈췄다 돌아오는 등 프레임이 크게 밀려도 한 번에 이 이상의 틱은 몰아서 돌리지 않는다 */
+const MAX_TICKS_PER_FRAME = 5;
 
 /** 화면 높이에 최소 이만큼의 타일이 보이도록 정수배 확대 배율을 고른다 */
 const MIN_VISIBLE_TILES_Y = 12;
@@ -34,6 +39,11 @@ export interface ParkDebugInfo {
   collisionView: boolean;
   pathRemaining: number;
   net: NetInfo;
+  lagMs: number;
+  pendingInputs: number;
+  /** 마지막 서버 보정 때 예측 위치와 어긋난 거리 (px) */
+  lastCorrectionPx: number;
+  corrections: number;
 }
 
 export class ParkScene extends Phaser.Scene {
@@ -47,6 +57,12 @@ export class ParkScene extends Phaser.Scene {
   private destMarker!: Phaser.GameObjects.Graphics;
   private collisionView?: { tiles: Phaser.GameObjects.Graphics; overlay: Phaser.GameObjects.Graphics };
   private sync!: ParkSync;
+  private prediction = new Prediction();
+  private tickAccMs = 0;
+  /** ?debug=1: 서버가 확인해 준 내 위치 (반투명) */
+  private ghost?: Phaser.GameObjects.Sprite;
+  private lastCorrectionPx = 0;
+  private corrections = 0;
 
   constructor() {
     super("Park");
@@ -85,7 +101,18 @@ export class ParkScene extends Phaser.Scene {
       this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F1, true).on("down", () => this.toggleCollisionView());
     }
 
-    this.sync = new ParkSync(this, nickname);
+    if (DEBUG) {
+      this.ghost = this.add
+        .sprite(0, 0, CHARACTER.key, idleFrame("down"))
+        .setOrigin(0.5, 1)
+        .setAlpha(0.35)
+        .setTint(0x80c0ff)
+        .setDepth(DEPTH.debug - 1)
+        .setVisible(false);
+    }
+
+    this.sync = new ParkSync(this, nickname, LAG_MS);
+    this.sync.onOwnState = (state, first) => this.onOwnServerState(state, first);
     void this.sync.connect();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sync.disconnect());
   }
@@ -95,17 +122,50 @@ export class ParkScene extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
-    const dt = deltaMs / 1000;
-    const keys = this.keyboard.read();
-    // 키보드를 누르면 클릭 이동은 취소
-    if (isMoving(keys) && this.follower.active) this.follower.cancel();
-    const input = isMoving(keys) ? keys : this.follower.next(this.player.position, dt);
-
-    this.player.move(input, dt, this.grid);
-    this.sync.sendLocalPose(this.player.position, this.player.facing, this.player.moving, time);
+    // 고정 틱: 서버와 같은 간격(TICK_MS)으로 입력을 읽고, 예측 이동하고, 서버로 보낸다
+    this.tickAccMs = Math.min(this.tickAccMs + deltaMs, TICK_MS * MAX_TICKS_PER_FRAME);
+    while (this.tickAccMs >= TICK_MS) {
+      this.tickAccMs -= TICK_MS;
+      this.fixedTick();
+    }
+    // 화면: 내 캐릭터는 직전 틱~현재 틱 사이 보간, 다른 사람은 서버 상태를 약간 과거로 보간
+    this.player.render(this.tickAccMs / TICK_MS);
+    this.sync.render(time);
 
     this.destMarker.setVisible(this.follower.active);
     if (this.collisionView) this.drawCollisionOverlay(this.collisionView.overlay);
+  }
+
+  private fixedTick(): void {
+    const keys = this.keyboard.read();
+    // 키보드를 누르면 클릭 이동은 취소
+    if (isMoving(keys) && this.follower.active) this.follower.cancel();
+    const input = isMoving(keys) ? keys : this.follower.next(this.player.position, TICK_MS / 1000);
+
+    this.player.tick(input, this.grid, this.sync.othersLatest());
+    if (this.sync.online) {
+      const msg = this.prediction.nextInput(input);
+      if (msg) this.sync.sendInput(msg);
+    }
+  }
+
+  /** 서버가 확인해 준 내 위치가 오면: 남은 입력을 다시 적용해 예측 위치를 바로잡는다 */
+  private onOwnServerState(state: OwnServerState, first: boolean): void {
+    if (this.ghost) this.ghost.setPosition(state.pos.x, state.pos.y).setDepth(DEPTH.debug - 1).setVisible(true);
+    if (first) {
+      // 입장 위치는 서버가 정한다
+      this.player.teleport(state.pos);
+      this.follower.cancel();
+      return;
+    }
+    const corrected = this.prediction.reconcile(state.pos, state.seq, this.grid, this.sync.othersLatest());
+    const cur = this.player.position;
+    const err = Math.hypot(corrected.x - cur.x, corrected.y - cur.y);
+    if (err > 0) {
+      this.lastCorrectionPx = err;
+      this.corrections++;
+      this.player.correctTo(corrected);
+    }
   }
 
   getDebugInfo(): ParkDebugInfo {
@@ -122,6 +182,10 @@ export class ParkScene extends Phaser.Scene {
       collisionView: this.collisionView !== undefined,
       pathRemaining: this.follower.remaining.length,
       net: this.sync.info,
+      lagMs: LAG_MS,
+      pendingInputs: this.prediction.pendingCount,
+      lastCorrectionPx: Math.round(this.lastCorrectionPx * 100) / 100,
+      corrections: this.corrections,
     };
   }
 

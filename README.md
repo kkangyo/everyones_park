@@ -75,6 +75,26 @@ Vite는 포트가 이미 쓰이고 있으면 다른 포트로 바꾸지 않고 �
 
 클라이언트 쪽은 실행 명령이 정한다: `CLIENT_PORT`(Vite 포트), `SERVER_URL`(프록시 대상, 기본 `http://localhost:2567`).
 
+## 폰 서버 배포
+
+폰은 Docker를 쓸 수 없어서 pm2가 게임 서버(Node)와 Caddy(정적 파일 + 프록시)를 직접 띄운다. 설정: [deploy/ecosystem.config.cjs](deploy/ecosystem.config.cjs), [deploy/Caddyfile](deploy/Caddyfile)
+
+```bash
+pnpm deploy:phone            # 설치 → 빌드 → pm2 시작/무중단 재시작 → 헬스체크
+pnpm exec pm2 ls             # 상태
+pnpm exec pm2 logs           # 로그
+pnpm deploy:stop             # 내리기
+```
+
+- 기본 주소는 HTTP `:3100` (3000은 폰에서 다른 프로그램이 사용 중. 공유기에서 3100 포워딩 필요). 도메인과 80/443 포워딩이 준비되면 `SITE_ADDRESS=park.example.com pnpm deploy:phone` 으로 HTTPS 인증서를 자동으로 받는다.
+- Caddy 설치 (sudo 없이, arm64 정적 바이너리):
+  ```bash
+  mkdir -p ~/bin && curl -fL "https://caddyserver.com/api/download?os=linux&arch=arm64" -o ~/bin/caddy && chmod +x ~/bin/caddy
+  ~/bin/caddy version
+  ```
+  `~/bin`이 PATH에 없으면 `CADDY_BIN=~/bin/caddy pnpm deploy:phone`.
+- 개발 서버(`pnpm dev`)와 운영 서버는 둘 다 2567 포트를 쓴다. 동시에 띄우지 않는다.
+
 ## 임시 그림 다시 만들기
 
 ```bash

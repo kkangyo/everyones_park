@@ -68,6 +68,8 @@ export class UIScene extends Phaser.Scene {
         `path   남은 경유점 ${d.pathRemaining}`,
         `F1     충돌·경로 표시 ${d.collisionView ? "켜짐" : "꺼짐"}`,
         `net    ${d.net.status} room=${d.net.roomId ?? "-"} me=${d.net.sessionId ?? "-"}${d.net.error ? ` (${d.net.error})` : ""}`,
+        `sync   lag=${d.lagMs}ms 대기입력=${d.pendingInputs} 보정=${d.corrections}회 (마지막 ${d.lastCorrectionPx}px)`,
+        `interp 다른 사람 지연 ${d.net.interpDelayMs}ms (자동)`,
       ].join("\n"),
     );
   }

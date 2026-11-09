@@ -1,6 +1,6 @@
 // 타일 충돌 격자. Tiled 맵 JSON 에서 만들며, 서버와 클라이언트가 같은 함수를 쓴다.
 
-import { FOOT_HITBOX } from "./constants";
+import { CORE_HITBOX, FOOT_HITBOX } from "./constants";
 import type { Vec2 } from "./movement";
 
 export interface CollisionGrid {
@@ -50,6 +50,17 @@ export interface Box {
 export function footBox(pos: Vec2): Box {
   const half = FOOT_HITBOX.width / 2;
   return { left: pos.x - half, right: pos.x + half, top: pos.y - FOOT_HITBOX.height, bottom: pos.y };
+}
+
+/** 다른 캐릭터와 부딪히는 발밑 가운데 상자 */
+export function coreBox(pos: Vec2): Box {
+  const half = CORE_HITBOX.width / 2;
+  return { left: pos.x - half, right: pos.x + half, top: pos.y - CORE_HITBOX.height, bottom: pos.y };
+}
+
+/** 두 상자가 겹치는지 (변이 맞닿기만 한 것은 겹침 아님) */
+export function boxesOverlap(a: Box, b: Box): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
 // 상자 경계가 타일 경계에 딱 붙어 있을 때 옆 칸까지 겹친 것으로 보지 않도록 조금 줄여서 판정

@@ -2,7 +2,7 @@
 // 화면·입력 장치와 무관한 순수 함수만 둔다.
 
 import { FOOT_HITBOX, WALK_SPEED } from "./constants";
-import { boxHitsWall, footBox, type CollisionGrid } from "./collision";
+import { boxHitsWall, boxesOverlap, coreBox, footBox, type CollisionGrid } from "./collision";
 
 export interface Vec2 {
   x: number;
@@ -38,8 +38,16 @@ export function inputDirection(input: MoveInput): Vec2 {
 /**
  * dtSec 동안 이동한 뒤의 위치. 장애물에 막히면 벽에 붙어서 멈추고,
  * 축(x, y)을 따로 처리하므로 대각선으로 벽에 부딪히면 벽을 따라 미끄러진다.
+ * others: 다른 캐릭터 위치. 발밑 가운데(CORE_HITBOX)끼리는 겹칠 수 없다.
  */
-export function step(pos: Vec2, input: MoveInput, dtSec: number, grid: CollisionGrid, speed = WALK_SPEED): Vec2 {
+export function step(
+  pos: Vec2,
+  input: MoveInput,
+  dtSec: number,
+  grid: CollisionGrid,
+  others: readonly Vec2[] = [],
+  speed = WALK_SPEED,
+): Vec2 {
   if (!isMoving(input) || dtSec <= 0) return pos;
   const dir = inputDirection(input);
   let cur = pos;
@@ -47,16 +55,31 @@ export function step(pos: Vec2, input: MoveInput, dtSec: number, grid: Collision
   while (remaining > 0) {
     const dt = Math.min(remaining, MAX_SUBSTEP_SEC);
     remaining -= dt;
-    cur = moveAxis(cur, "x", dir.x * speed * dt, grid);
-    cur = moveAxis(cur, "y", dir.y * speed * dt, grid);
+    cur = moveAxis(cur, "x", dir.x * speed * dt, grid, others);
+    cur = moveAxis(cur, "y", dir.y * speed * dt, grid, others);
   }
   return cur;
 }
 
-function moveAxis(pos: Vec2, axis: "x" | "y", delta: number, grid: CollisionGrid): Vec2 {
+/**
+ * next 로 가면 새로 겹치게 되는 캐릭터가 있는지.
+ * 이미 겹쳐 있던 상대는 무시한다 (같은 자리에 입장한 경우 등 서로 떨어져 나갈 수 있게).
+ */
+function hitsOther(pos: Vec2, next: Vec2, others: readonly Vec2[]): boolean {
+  if (others.length === 0) return false;
+  const cur = coreBox(pos);
+  const nb = coreBox(next);
+  for (const o of others) {
+    const ob = coreBox(o);
+    if (boxesOverlap(nb, ob) && !boxesOverlap(cur, ob)) return true;
+  }
+  return false;
+}
+
+function moveAxis(pos: Vec2, axis: "x" | "y", delta: number, grid: CollisionGrid, others: readonly Vec2[]): Vec2 {
   if (delta === 0) return pos;
   const next = axis === "x" ? { x: pos.x + delta, y: pos.y } : { x: pos.x, y: pos.y + delta };
-  if (!boxHitsWall(grid, footBox(next))) return next;
+  if (!boxHitsWall(grid, footBox(next))) return hitsOther(pos, next, others) ? pos : next;
 
   // 막혔으면 부딪힌 타일 경계에 딱 붙인다
   const t = grid.tileSize;
@@ -65,11 +88,11 @@ function moveAxis(pos: Vec2, axis: "x" | "y", delta: number, grid: CollisionGrid
     const half = FOOT_HITBOX.width / 2;
     const x = delta > 0 ? Math.floor(box.right / t) * t - half : (Math.floor(box.left / t) + 1) * t + half;
     const snapped = { x, y: pos.y };
-    return boxHitsWall(grid, footBox(snapped)) ? pos : snapped;
+    return boxHitsWall(grid, footBox(snapped)) || hitsOther(pos, snapped, others) ? pos : snapped;
   }
   const y = delta > 0 ? Math.floor(box.bottom / t) * t : (Math.floor(box.top / t) + 1) * t + FOOT_HITBOX.height;
   const snapped = { x: pos.x, y };
-  return boxHitsWall(grid, footBox(snapped)) ? pos : snapped;
+  return boxHitsWall(grid, footBox(snapped)) || hitsOther(pos, snapped, others) ? pos : snapped;
 }
 
 /**
