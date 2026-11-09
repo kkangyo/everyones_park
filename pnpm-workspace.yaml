@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
 
-# 설치 스크립트 실행을 허용할 패키지
+# 설치 스크립트 실행 허용(true)·거부(false). msgpackr-extract 는 선택적 네이티브 가속이라 거부 (순수 JS로 동작)
 allowBuilds:
   esbuild: true
+  msgpackr-extract: false

@@ -1,0 +1,17 @@
+# WSL 등 Docker를 쓸 수 있는 환경에서 게임 서버를 컨테이너로 시험한다.
+#   pnpm docker:up      # 빌드 + 백그라운드 실행 (localhost:2567)
+#   pnpm client:wsl     # 클라이언트는 호스트에서 Vite로 (프록시 → localhost:2567)
+#   pnpm docker:logs / pnpm docker:down
+name: everyones-park
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: docker/server.Dockerfile
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MAX_CLIENTS: ${MAX_CLIENTS:-70}
+    ports:
+      - "2567:2567"
+    restart: unless-stopped

@@ -40,6 +40,8 @@ export const DEPTH = {
   groundMarker: 1,
   /** 이 값부터는 y 좌표를 더해서 쓴다 */
   ysortBase: 10,
+  /** 이름표. 모든 캐릭터·나무보다 위 (맵 높이보다 충분히 큰 값) */
+  nameplate: 100_000,
   debug: 1_000_000,
 } as const;
 

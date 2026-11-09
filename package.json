@@ -7,6 +7,13 @@
   },
   "scripts": {
     "dev": "pnpm -r --parallel dev",
+    "dev:wsl": "CLIENT_PORT=15173 pnpm -r --parallel dev",
+    "preview": "pnpm build && pnpm -r --parallel preview",
+    "preview:wsl": "pnpm build && CLIENT_PORT=15173 pnpm -r --parallel preview",
+    "client:wsl": "CLIENT_PORT=15173 pnpm --filter @park/client dev",
+    "docker:up": "docker compose -f docker/compose.yml up --build -d",
+    "docker:down": "docker compose -f docker/compose.yml down",
+    "docker:logs": "docker compose -f docker/compose.yml logs -f",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "gen:map": "tsx scripts/gen-placeholder-map.ts",

@@ -16,6 +16,8 @@ import { DEV_KEYS } from "../debug";
 import { Player } from "../entities/Player";
 import { KeyboardMove } from "../input/keyboard";
 import { PathFollower } from "../input/pathFollower";
+import { tempNickname } from "../net/connection";
+import { ParkSync, type NetInfo } from "../net/ParkSync";
 
 /** 화면 높이에 최소 이만큼의 타일이 보이도록 정수배 확대 배율을 고른다 */
 const MIN_VISIBLE_TILES_Y = 12;
@@ -31,6 +33,7 @@ export interface ParkDebugInfo {
   obstacleTile: number;
   collisionView: boolean;
   pathRemaining: number;
+  net: NetInfo;
 }
 
 export class ParkScene extends Phaser.Scene {
@@ -43,6 +46,7 @@ export class ParkScene extends Phaser.Scene {
   private follower = new PathFollower();
   private destMarker!: Phaser.GameObjects.Graphics;
   private collisionView?: { tiles: Phaser.GameObjects.Graphics; overlay: Phaser.GameObjects.Graphics };
+  private sync!: ParkSync;
 
   constructor() {
     super("Park");
@@ -61,7 +65,8 @@ export class ParkScene extends Phaser.Scene {
     const raw = this.cache.tilemap.get(MAP.key).data;
     this.grid = collisionGridFromTiled(raw, MAP.layers.obstacles);
 
-    this.player = new Player(this, this.findSpawn(MAP.entranceSpawn));
+    const nickname = tempNickname();
+    this.player = new Player(this, this.findSpawn(MAP.entranceSpawn), nickname);
     this.keyboard = new KeyboardMove(this);
 
     this.destMarker = this.add.graphics().setDepth(DEPTH.groundMarker).setVisible(false);
@@ -70,7 +75,7 @@ export class ParkScene extends Phaser.Scene {
     const cam = this.cameras.main;
     cam.setBounds(0, 0, this.map.widthInPixels, this.map.heightInPixels);
     cam.setRoundPixels(true);
-    cam.startFollow(this.player.sprite, true);
+    cam.startFollow(this.player.view.sprite, true);
 
     this.applyZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
@@ -79,9 +84,17 @@ export class ParkScene extends Phaser.Scene {
     if (DEV_KEYS) {
       this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F1, true).on("down", () => this.toggleCollisionView());
     }
+
+    this.sync = new ParkSync(this, nickname);
+    void this.sync.connect();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sync.disconnect());
   }
 
-  update(_time: number, deltaMs: number): void {
+  get netInfo(): NetInfo {
+    return this.sync.info;
+  }
+
+  update(time: number, deltaMs: number): void {
     const dt = deltaMs / 1000;
     const keys = this.keyboard.read();
     // 키보드를 누르면 클릭 이동은 취소
@@ -89,6 +102,7 @@ export class ParkScene extends Phaser.Scene {
     const input = isMoving(keys) ? keys : this.follower.next(this.player.position, dt);
 
     this.player.move(input, dt, this.grid);
+    this.sync.sendLocalPose(this.player.position, this.player.facing, this.player.moving, time);
 
     this.destMarker.setVisible(this.follower.active);
     if (this.collisionView) this.drawCollisionOverlay(this.collisionView.overlay);
@@ -107,6 +121,7 @@ export class ParkScene extends Phaser.Scene {
       obstacleTile: this.obstacleLayer.getTileAt(t.col, t.row)?.index ?? -1,
       collisionView: this.collisionView !== undefined,
       pathRemaining: this.follower.remaining.length,
+      net: this.sync.info,
     };
   }
 

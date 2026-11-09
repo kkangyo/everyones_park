@@ -1,5 +1,8 @@
 // 모든 환경변수는 이 파일에서만 읽는다.
 
+import { resolve } from "node:path";
+import { CHANNEL_CAPACITY } from "@park/shared";
+
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
@@ -26,10 +29,17 @@ function readLogLevel(): LogLevel {
   return raw as LogLevel;
 }
 
+const nodeEnv = process.env.NODE_ENV ?? "development";
+
 export const config = {
   port: readInt("PORT", 2567),
   logLevel: readLogLevel(),
-  nodeEnv: process.env.NODE_ENV ?? "development",
+  nodeEnv,
+  isProduction: nodeEnv === "production",
+  /** 채널(Room) 정원. 채널 자동 분할을 시험할 때 작게 줄일 수 있다 */
+  maxClients: readInt("MAX_CLIENTS", CHANNEL_CAPACITY),
+  /** 맵 등 에셋 폴더. 기본값은 apps/server 에서 실행할 때의 리포 루트 assets/ */
+  assetsDir: resolve(process.env.ASSETS_DIR ?? "../../assets"),
 } as const;
 
 export const LOG_LEVEL_ORDER: readonly LogLevel[] = LOG_LEVELS;

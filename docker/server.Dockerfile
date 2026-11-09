@@ -1,10 +1,10 @@
-# 게임 서버 이미지 (클라우드 이전용)
+# 게임 서버 이미지 (WSL 시험 + 클라우드 이전용)
 # 폰 서버(arm64 chroot)는 커널에 PID 네임스페이스가 없어 Docker를 쓸 수 없으므로 Node를 직접 실행한다.
-# 빌드: docker build -f docker/server.Dockerfile -t everyones-park-server .
+# 실행: pnpm docker:up   (docker/compose.yml)
 
 FROM node:20-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
-RUN corepack enable
+RUN npm install -g corepack@latest && corepack enable
 WORKDIR /app
 
 # --- 빌드: 전체 의존성 설치 후 서버 번들 생성 (shared는 번들에 포함됨)
@@ -21,6 +21,9 @@ COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
 RUN pnpm install --prod --frozen-lockfile --filter "@park/server..."
 COPY --from=build /app/apps/server/dist apps/server/dist
+# 서버가 읽는 맵 (충돌 격자·시작 위치). 그림 파일은 필요 없음
+COPY assets/maps assets/maps
+ENV ASSETS_DIR=/app/assets
 
 WORKDIR /app/apps/server
 EXPOSE 2567
