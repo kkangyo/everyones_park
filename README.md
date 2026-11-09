@@ -10,3 +10,13 @@
 
 - Node.js 20 LTS (`.nvmrc` 참고)
 - pnpm (`corepack enable`)
+
+## 개발 실행
+
+```bash
+pnpm install
+cp apps/server/.env.example apps/server/.env
+pnpm dev          # 서버(:2567) + 클라이언트(:5173) 동시 실행
+```
+
+브라우저에서 http://localhost:5173 (같은 네트워크의 다른 PC에서는 `http://<폰 IP>:5173`)

@@ -1,0 +1,29 @@
+# 게임 서버 이미지 (클라우드 이전용)
+# 폰 서버(arm64 chroot)는 커널에 PID 네임스페이스가 없어 Docker를 쓸 수 없으므로 Node를 직접 실행한다.
+# 빌드: docker build -f docker/server.Dockerfile -t everyones-park-server .
+
+FROM node:20-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+RUN corepack enable
+WORKDIR /app
+
+# --- 빌드: 전체 의존성 설치 후 서버 번들 생성 (shared는 번들에 포함됨)
+FROM base AS build
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @park/server build
+
+# --- 실행: 서버 운영 의존성만 설치하고 번들만 복사
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/server/package.json apps/server/
+RUN pnpm install --prod --frozen-lockfile --filter "@park/server..."
+COPY --from=build /app/apps/server/dist apps/server/dist
+
+WORKDIR /app/apps/server
+EXPOSE 2567
+HEALTHCHECK --interval=30s --timeout=3s CMD node -e "fetch('http://localhost:'+(process.env.PORT||2567)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+USER node
+CMD ["node", "dist/index.js"]
