@@ -1,0 +1,260 @@
+import type Phaser from "phaser";
+import {
+  GENDERS,
+  NICKNAME_MAX_LENGTH,
+  OUTFITS,
+  PIN_PATTERN,
+  checkNicknameFormat,
+  normalizeNickname,
+  type Gender,
+} from "@park/shared";
+import { CHARACTER, bodySheet, outfitSheet } from "../assets";
+import { t } from "../i18n";
+import { checkNickname, fetchRandomNickname } from "../net/api";
+import type { Profile } from "../profile";
+import "./lobby.css";
+
+export interface LobbyValues extends Profile {
+  pin: string;
+}
+
+/** 입력 중 닉네임 확인 요청을 보내기까지 기다리는 시간 */
+const CHECK_DEBOUNCE_MS = 400;
+/** 미리보기: 걷기 프레임 간격, 한 방향으로 걷는 프레임 수 */
+const PREVIEW_FRAME_MS = 1000 / CHARACTER.walkFrameRate;
+const PREVIEW_FRAMES_PER_FACING = 8;
+const PREVIEW_FACINGS = ["down", "left", "up", "right"] as const;
+const PREVIEW_SCALE = 3;
+
+/**
+ * 입장 화면 입력 폼 (닉네임·PIN·성별·옷). 글자 입력은 Phaser 보다 HTML 이 다루기 쉬워서 DOM 으로 만든다.
+ * 캐릭터 미리보기는 Phaser 가 불러 둔 스프라이트시트를 <canvas> 에 몸 → 옷 순서로 겹쳐 그린다.
+ */
+export class LobbyForm {
+  private readonly form: HTMLFormElement;
+  private readonly nickname: HTMLInputElement;
+  private readonly pin: HTMLInputElement;
+  private readonly nicknameHint: HTMLElement;
+  private readonly error: HTMLElement;
+  private readonly submit: HTMLButtonElement;
+  private readonly genderBox: HTMLElement;
+  private readonly outfitBox: HTMLElement;
+  private readonly preview: CanvasRenderingContext2D;
+  private gender: Gender;
+  private outfit: string;
+  private previewTick = 0;
+  private readonly previewTimer: number;
+  private checkTimer?: number;
+  private checkAbort?: AbortController;
+
+  constructor(
+    private readonly textures: Phaser.Textures.TextureManager,
+    initial: Profile,
+    private readonly onSubmit: (values: LobbyValues) => Promise<void>,
+  ) {
+    this.gender = initial.gender;
+    this.outfit = initial.outfit;
+
+    this.form = document.createElement("form");
+    this.form.className = "lobby";
+    this.form.noValidate = true;
+    this.form.innerHTML = `
+      <h1 class="lobby-title"></h1>
+      <p class="lobby-tagline"></p>
+      <div class="lobby-character">
+        <canvas class="lobby-preview" width="${CHARACTER.frameWidth * PREVIEW_SCALE}" height="${CHARACTER.frameHeight * PREVIEW_SCALE}"></canvas>
+        <div class="lobby-choices">
+          <div class="lobby-gender" role="radiogroup"></div>
+          <div class="lobby-outfits" role="radiogroup"></div>
+        </div>
+      </div>
+      <label class="lobby-field">
+        <span data-text="nickname"></span>
+        <span class="lobby-row">
+          <input name="nickname" autocomplete="off" spellcheck="false" />
+          <button type="button" class="lobby-random"></button>
+        </span>
+      </label>
+      <p class="lobby-hint" data-role="nickname-hint"></p>
+      <label class="lobby-field">
+        <span data-text="pin"></span>
+        <input name="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" />
+      </label>
+      <p class="lobby-hint" data-text="pinHint"></p>
+      <p class="lobby-error" role="alert"></p>
+      <button type="submit" class="lobby-enter"></button>
+      <p class="lobby-privacy"></p>`;
+
+    const $ = <T extends Element>(sel: string) => this.form.querySelector(sel) as T;
+    $<HTMLElement>(".lobby-title").textContent = t("app.title");
+    $<HTMLElement>(".lobby-tagline").textContent = t("app.tagline");
+    $<HTMLElement>('[data-text="nickname"]').textContent = t("lobby.nickname");
+    $<HTMLElement>('[data-text="pin"]').textContent = t("lobby.pin");
+    $<HTMLElement>('[data-text="pinHint"]').textContent = t("lobby.pinHint");
+    $<HTMLElement>(".lobby-privacy").textContent = t("lobby.privacy");
+    const random = $<HTMLButtonElement>(".lobby-random");
+    random.textContent = t("lobby.randomNickname");
+    random.title = t("lobby.randomNicknameTitle");
+
+    this.nickname = $("input[name=nickname]");
+    this.nickname.placeholder = t("lobby.nicknamePlaceholder");
+    // 띄어쓰기를 몇 칸 더 쳐도 정리되므로 입력 칸은 조금 여유 있게
+    this.nickname.maxLength = NICKNAME_MAX_LENGTH + 4;
+    this.nickname.value = initial.nickname;
+    this.pin = $("input[name=pin]");
+    this.nicknameHint = $('[data-role="nickname-hint"]');
+    this.error = $(".lobby-error");
+    this.submit = $(".lobby-enter");
+    this.submit.textContent = t("lobby.enter");
+    this.genderBox = $(".lobby-gender");
+    this.outfitBox = $(".lobby-outfits");
+    const canvas = $<HTMLCanvasElement>(".lobby-preview");
+    this.preview = canvas.getContext("2d")!;
+    this.preview.imageSmoothingEnabled = false;
+
+    this.renderChoices();
+    this.nickname.addEventListener("input", () => this.scheduleNicknameCheck());
+    this.pin.addEventListener("input", () => {
+      this.pin.value = this.pin.value.replace(/\D/g, "").slice(0, 4);
+    });
+    random.addEventListener("click", () => void this.suggestNickname());
+    this.form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      void this.handleSubmit();
+    });
+
+    document.body.appendChild(this.form);
+    this.previewTimer = window.setInterval(() => this.drawPreview(), PREVIEW_FRAME_MS);
+    this.drawPreview();
+    if (this.nickname.value) {
+      this.scheduleNicknameCheck(0);
+      this.pin.focus();
+    } else {
+      this.nickname.focus();
+    }
+  }
+
+  destroy(): void {
+    window.clearInterval(this.previewTimer);
+    window.clearTimeout(this.checkTimer);
+    this.checkAbort?.abort();
+    this.form.remove();
+  }
+
+  private renderChoices(): void {
+    this.genderBox.replaceChildren(
+      ...GENDERS.map((g) =>
+        this.choiceButton(t(`character.gender.${g}`), g === this.gender, () => {
+          if (g === this.gender) return;
+          this.gender = g;
+          this.outfit = OUTFITS[g][0]!;
+          this.renderChoices();
+        }),
+      ),
+    );
+    this.outfitBox.replaceChildren(
+      ...OUTFITS[this.gender].map((o) =>
+        this.choiceButton(t(`character.outfit.${o}` as Parameters<typeof t>[0]), o === this.outfit, () => {
+          this.outfit = o;
+          this.renderChoices();
+        }),
+      ),
+    );
+    this.drawPreview();
+  }
+
+  private choiceButton(label: string, selected: boolean, onClick: () => void): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "lobby-choice";
+    b.textContent = label;
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(selected));
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  /** 몸 → 옷 순서로 같은 프레임을 겹쳐 그린다. 네 방향을 돌아가며 걷는다 */
+  private drawPreview(): void {
+    const tick = this.previewTick++;
+    const facing = PREVIEW_FACINGS[Math.floor(tick / PREVIEW_FRAMES_PER_FACING) % PREVIEW_FACINGS.length]!;
+    const frame = CHARACTER.directions.indexOf(facing) * CHARACTER.walkFrames + (tick % CHARACTER.walkFrames);
+    const ctx = this.preview;
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    for (const key of [bodySheet(this.gender).key, outfitSheet(this.outfit).key]) {
+      const f = this.textures.getFrame(key, frame);
+      if (!f) continue;
+      ctx.drawImage(f.source.image as CanvasImageSource, f.cutX, f.cutY, f.cutWidth, f.cutHeight, 0, 0, ctx.canvas.width, ctx.canvas.height);
+    }
+  }
+
+  /** 입력이 멈추면 형식을 확인하고, 문제없으면 서버에 '새 닉네임 / 이미 있는 닉네임'을 물어본다 */
+  private scheduleNicknameCheck(delay = CHECK_DEBOUNCE_MS): void {
+    window.clearTimeout(this.checkTimer);
+    this.checkAbort?.abort();
+    this.setHint("");
+    const name = normalizeNickname(this.nickname.value);
+    if (!name) return;
+    this.checkTimer = window.setTimeout(async () => {
+      const formatError = checkNicknameFormat(name);
+      if (formatError) return this.setHint(t(`error.${formatError}`), true);
+      this.checkAbort = new AbortController();
+      try {
+        const { exists } = await checkNickname(name, this.checkAbort.signal);
+        this.setHint(t(exists ? "lobby.nicknameExists" : "lobby.nicknameNew"));
+      } catch (err) {
+        // 금지어 등 서버만 아는 오류는 보여 주고, 연결 문제는 조용히 넘어간다 (들어가기 누를 때 다시 안내)
+        const code = (err as { code?: string }).code;
+        if (code === "NICKNAME_BANNED") this.setHint(t("error.NICKNAME_BANNED"), true);
+      }
+    }, delay);
+  }
+
+  private setHint(text: string, isError = false): void {
+    this.nicknameHint.textContent = text;
+    this.nicknameHint.classList.toggle("is-error", isError);
+  }
+
+  private async suggestNickname(): Promise<void> {
+    try {
+      this.nickname.value = await fetchRandomNickname();
+      this.scheduleNicknameCheck(0);
+      this.pin.focus();
+    } catch {
+      this.showError(t("error.NETWORK"));
+    }
+  }
+
+  private async handleSubmit(): Promise<void> {
+    const nickname = normalizeNickname(this.nickname.value);
+    const pin = this.pin.value;
+    const formatError = checkNicknameFormat(nickname);
+    if (formatError) {
+      this.showError(t(`error.${formatError}`));
+      return this.nickname.focus();
+    }
+    if (!PIN_PATTERN.test(pin)) {
+      this.showError(t("error.PIN_FORMAT"));
+      return this.pin.focus();
+    }
+
+    this.showError("");
+    this.setBusy(true);
+    try {
+      await this.onSubmit({ nickname, pin, gender: this.gender, outfit: this.outfit });
+    } catch (err) {
+      this.showError(err instanceof Error ? err.message : String(err));
+      this.setBusy(false);
+      this.pin.select();
+    }
+  }
+
+  private showError(text: string): void {
+    this.error.textContent = text;
+  }
+
+  private setBusy(busy: boolean): void {
+    this.submit.disabled = busy;
+    this.submit.textContent = t(busy ? "lobby.entering" : "lobby.enter");
+  }
+}

@@ -2,24 +2,31 @@ import Phaser from "phaser";
 import {
   TICK_MS,
   TILE_SIZE,
-  collisionGridFromTiled,
   findPath,
   footBox,
   isBlockedTile,
   isMoving,
   tileCenter,
   tileOf,
+  type AuthUser,
   type CollisionGrid,
   type Vec2,
 } from "@park/shared";
-import { CHARACTER, DEPTH, MAP, PROP_SPRITES, TILESET, idleFrame } from "../assets";
+import { DEPTH, bodySheet, idleFrame } from "../assets";
 import { DEBUG, DEV_KEYS, LAG_MS } from "../debug";
 import { Player } from "../entities/Player";
 import { KeyboardMove } from "../input/keyboard";
 import { PathFollower } from "../input/pathFollower";
-import { tempNickname } from "../net/connection";
+import type { ParkRoom } from "../net/connection";
 import { ParkSync, type NetInfo, type OwnServerState } from "../net/ParkSync";
 import { Prediction } from "../net/Prediction";
+import { buildParkMap } from "../world/parkMap";
+
+/** 입장 화면(Lobby)이 로그인·채널 접속을 마치고 넘겨 주는 값 */
+export interface ParkSceneData {
+  room: ParkRoom;
+  user: AuthUser;
+}
 
 /** 탭이 멈췄다 돌아오는 등 프레임이 크게 밀려도 한 번에 이 이상의 틱은 몰아서 돌리지 않는다 */
 const MAX_TICKS_PER_FRAME = 5;
@@ -47,6 +54,7 @@ export interface ParkDebugInfo {
 }
 
 export class ParkScene extends Phaser.Scene {
+  private entry!: ParkSceneData;
   private map!: Phaser.Tilemaps.Tilemap;
   private groundLayer!: Phaser.Tilemaps.TilemapLayer;
   private obstacleLayer!: Phaser.Tilemaps.TilemapLayer;
@@ -68,21 +76,20 @@ export class ParkScene extends Phaser.Scene {
     super("Park");
   }
 
+  init(data: ParkSceneData): void {
+    this.entry = data;
+  }
+
   create(): void {
-    this.map = this.make.tilemap({ key: MAP.key });
-    const tileset = this.map.addTilesetImage(TILESET.name, TILESET.key);
-    if (!tileset) throw new Error(`타일셋 "${TILESET.name}" 을(를) 맵에서 찾을 수 없습니다`);
+    const park = buildParkMap(this);
+    this.map = park.map;
+    this.groundLayer = park.groundLayer;
+    this.obstacleLayer = park.obstacleLayer;
+    this.grid = park.grid;
 
-    this.groundLayer = this.map.createLayer(MAP.layers.ground, tileset)!.setDepth(DEPTH.ground);
-    this.obstacleLayer = this.map.createLayer(MAP.layers.obstacles, tileset)!.setDepth(DEPTH.ground);
-    this.liftYSortTiles(this.obstacleLayer);
-
-    // 서버와 같은 함수로, 같은 원본 JSON 에서 충돌 격자를 만든다
-    const raw = this.cache.tilemap.get(MAP.key).data;
-    this.grid = collisionGridFromTiled(raw, MAP.layers.obstacles);
-
-    const nickname = tempNickname();
-    this.player = new Player(this, this.findSpawn(MAP.entranceSpawn), nickname);
+    const { room, user } = this.entry;
+    // 실제 입장 위치는 서버가 정해서 첫 상태로 알려 준다 (onOwnServerState)
+    this.player = new Player(this, park.entrance, user.nickname, user);
     this.keyboard = new KeyboardMove(this);
 
     this.destMarker = this.add.graphics().setDepth(DEPTH.groundMarker).setVisible(false);
@@ -91,7 +98,7 @@ export class ParkScene extends Phaser.Scene {
     const cam = this.cameras.main;
     cam.setBounds(0, 0, this.map.widthInPixels, this.map.heightInPixels);
     cam.setRoundPixels(true);
-    cam.startFollow(this.player.view.sprite, true);
+    cam.startFollow(this.player.view.root, true);
 
     this.applyZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
@@ -103,7 +110,7 @@ export class ParkScene extends Phaser.Scene {
 
     if (DEBUG) {
       this.ghost = this.add
-        .sprite(0, 0, CHARACTER.key, idleFrame("down"))
+        .sprite(0, 0, bodySheet(user.gender).key, idleFrame("down"))
         .setOrigin(0.5, 1)
         .setAlpha(0.35)
         .setTint(0x80c0ff)
@@ -111,9 +118,9 @@ export class ParkScene extends Phaser.Scene {
         .setVisible(false);
     }
 
-    this.sync = new ParkSync(this, nickname, LAG_MS);
+    this.sync = new ParkSync(this, room, LAG_MS);
     this.sync.onOwnState = (state, first) => this.onOwnServerState(state, first);
-    void this.sync.connect();
+    this.sync.start();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sync.disconnect());
   }
 
@@ -210,35 +217,6 @@ export class ParkScene extends Phaser.Scene {
       .lineStyle(2, 0xe8823a, 0.9)
       .strokeEllipse(at.x, at.y - 1, 14, 6)
       .setVisible(true);
-  }
-
-  /**
-   * ysort 속성이 있는 타일(나무·바위·울타리)을 타일 레이어에서 빼서 개별 이미지로 다시 그린다.
-   * 이미지 depth 를 타일 아랫변 y 로 두면 캐릭터와 앞뒤가 맞는다 (나무 뒤에 서면 가려짐).
-   * 충돌은 원본 JSON 으로 만든 격자를 쓰므로 영향 없음.
-   */
-  private liftYSortTiles(layer: Phaser.Tilemaps.TilemapLayer): void {
-    const lifted: Phaser.Tilemaps.Tile[] = [];
-    layer.forEachTile((tile) => {
-      const props = tile.properties as { ysort?: boolean; sprite?: string } | undefined;
-      if (tile.index < 0 || !props?.ysort) return;
-      const baseX = tile.pixelX + tile.width / 2;
-      const baseY = tile.pixelY + tile.height;
-      const prop = props.sprite ? PROP_SPRITES[props.sprite] : undefined;
-      if (props.sprite && !prop) console.warn(`assets.ts PROP_SPRITES 에 "${props.sprite}" 이(가) 없어 타일 그림으로 그립니다`);
-      const image = prop
-        ? this.add.image(baseX, baseY, prop.key)
-        : this.add.image(baseX, baseY, TILESET.sheetKey, tile.index - tile.tileset!.firstgid);
-      image.setOrigin(0.5, 1).setDepth(DEPTH.ysortBase + baseY);
-      lifted.push(tile);
-    });
-    for (const tile of lifted) layer.removeTileAt(tile.x, tile.y);
-  }
-
-  private findSpawn(name: string): Vec2 {
-    const obj = this.map.findObject(MAP.layers.spawns, (o) => o.name === name);
-    if (!obj || obj.x === undefined || obj.y === undefined) throw new Error(`시작 위치 "${name}" 을(를) 맵에서 찾을 수 없습니다`);
-    return { x: obj.x, y: obj.y };
   }
 
   /** 픽셀이 흐려지지 않게 항상 정수배로 확대한다 */

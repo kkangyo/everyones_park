@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene";
+import { LobbyScene } from "./scenes/LobbyScene";
 import { ParkScene } from "./scenes/ParkScene";
 import { UIScene } from "./scenes/UIScene";
 
@@ -13,5 +14,5 @@ new Phaser.Game({
     width: "100%",
     height: "100%",
   },
-  scene: [BootScene, ParkScene, UIScene],
+  scene: [BootScene, LobbyScene, ParkScene, UIScene],
 });

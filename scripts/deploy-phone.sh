@@ -9,6 +9,14 @@ if ! command -v "$CADDY" >/dev/null 2>&1; then
   exit 1
 fi
 
+# 입장 토큰 서명 키: 운영 서버는 AUTH_SECRET 이 없으면 시작하지 않는다.
+# 처음 배포할 때 한 번 만들어서 apps/server/.env 에 저장한다 (git 에 올라가지 않음. 서버가 시작할 때 읽음)
+ENV_FILE=apps/server/.env
+if [[ -z "${AUTH_SECRET:-}" ]] && ! grep -q '^AUTH_SECRET=.' "$ENV_FILE" 2>/dev/null; then
+  echo "AUTH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" >> "$ENV_FILE"
+  echo "AUTH_SECRET 을 새로 만들어 $ENV_FILE 에 저장했습니다"
+fi
+
 pnpm install --frozen-lockfile
 pnpm build
 "$CADDY" validate --config deploy/Caddyfile --adapter caddyfile >/dev/null

@@ -1,13 +1,15 @@
 import { Callbacks, Client, type Room } from "@colyseus/sdk";
-import { COLYSEUS_PATH, NICKNAME_MAX_LENGTH, ROOM_NAME, type JoinOptions, type ParkStateView, type PlayerView } from "@park/shared";
+import { COLYSEUS_PATH, ROOM_NAME, type ParkStateView, type PlayerView } from "@park/shared";
 
 export type ParkRoom = Room<any, ParkStateView>;
 
 /** 같은 주소(개발: Vite, 운영: Caddy)의 /colyseus 로 접속한다 */
 const client = new Client(COLYSEUS_PATH);
 
-export async function joinPark(options: JoinOptions): Promise<ParkRoom> {
-  return (await client.joinOrCreate(ROOM_NAME, options)) as ParkRoom;
+/** 로그인(POST /api/login)으로 받은 토큰으로 채널에 들어간다. 서버 onAuth 가 토큰을 검증한다 */
+export async function joinPark(token: string): Promise<ParkRoom> {
+  client.auth.token = token;
+  return (await client.joinOrCreate(ROOM_NAME, {})) as ParkRoom;
 }
 
 /**
@@ -23,11 +25,4 @@ export interface ParkStateCallbacks {
 
 export function stateCallbacks(room: ParkRoom): ParkStateCallbacks {
   return Callbacks.get(room as any) as unknown as ParkStateCallbacks;
-}
-
-/** 3단계 계정 기능 전까지 쓰는 임시 닉네임. ?name=홍길동 으로 지정할 수 있다 */
-export function tempNickname(): string {
-  const fromUrl = new URLSearchParams(window.location.search).get("name")?.trim();
-  if (fromUrl) return fromUrl.slice(0, NICKNAME_MAX_LENGTH);
-  return `손님${Math.floor(1000 + Math.random() * 9000)}`;
 }

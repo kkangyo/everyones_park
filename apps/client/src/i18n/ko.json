@@ -1,0 +1,56 @@
+{
+  "app": {
+    "title": "모두의 쉼터",
+    "tagline": "겨울 공원에서 잠깐 쉬어 가요",
+    "loading": "불러오는 중… {percent}%"
+  },
+  "lobby": {
+    "nickname": "닉네임",
+    "nicknamePlaceholder": "2–10자",
+    "randomNickname": "추천",
+    "randomNicknameTitle": "랜덤 닉네임 추천",
+    "nicknameNew": "새 닉네임이에요. 아래 PIN으로 만들어져요",
+    "nicknameExists": "이미 있는 닉네임이에요. 내 닉네임이면 PIN을 입력해 주세요",
+    "pin": "PIN (숫자 4자리)",
+    "pinHint": "처음이면 이 PIN으로 만들어져요. 잊지 않게 기억해 주세요",
+    "character": "캐릭터",
+    "enter": "공원 들어가기",
+    "entering": "들어가는 중…",
+    "privacy": "닉네임과 암호화한 PIN, 캐릭터 선택만 저장해요"
+  },
+  "character": {
+    "gender": {
+      "male": "남자",
+      "female": "여자"
+    },
+    "outfit": {
+      "padding-orange": "주황 패딩",
+      "coat-navy": "남색 코트",
+      "hoodie-green": "초록 후드",
+      "parka-gray": "회색 파카",
+      "coat-pink": "분홍 코트",
+      "padding-cream": "크림 롱패딩",
+      "coat-red": "빨간 코트",
+      "parka-mint": "민트 파카"
+    }
+  },
+  "error": {
+    "NICKNAME_LENGTH": "닉네임은 2–10자로 정해 주세요",
+    "NICKNAME_CHARS": "닉네임은 한글·영문·숫자·띄어쓰기만 쓸 수 있어요",
+    "NICKNAME_BANNED": "쓸 수 없는 닉네임이에요. 다른 닉네임을 골라 주세요",
+    "PIN_FORMAT": "PIN은 숫자 4자리예요",
+    "APPEARANCE_INVALID": "캐릭터를 다시 골라 주세요",
+    "WRONG_PIN": "PIN이 맞지 않아요 (남은 기회 {remaining}번). 새 닉네임을 원하면 다른 닉네임을 써 주세요",
+    "LOCKED": "여러 번 틀려서 잠시 잠겼어요. {minutes}분 뒤에 다시 시도해 주세요",
+    "BAD_REQUEST": "요청이 올바르지 않아요",
+    "SERVER_ERROR": "서버에 문제가 생겼어요. 잠시 뒤에 다시 시도해 주세요",
+    "NETWORK": "서버에 연결할 수 없어요. 잠시 뒤에 다시 시도해 주세요",
+    "JOIN_FAILED": "공원에 들어가지 못했어요. 다시 시도해 주세요"
+  },
+  "status": {
+    "channel": "● 채널 {channel} · {players}명",
+    "disconnected": "● 연결이 끊겼어요. 새로고침해 주세요",
+    "duplicateLogin": "● 다른 곳에서 같은 닉네임으로 들어와서 연결이 끊겼어요",
+    "serverDown": "● 서버 연결 안 됨"
+  }
+}

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { TICK_SEC, facingFromInput, isMoving, step, type CollisionGrid, type Facing, type MoveInput, type Vec2 } from "@park/shared";
+import { TICK_SEC, facingFromInput, isMoving, step, type Appearance, type CollisionGrid, type Facing, type MoveInput, type Vec2 } from "@park/shared";
 import { CharacterView } from "./CharacterView";
 
 /**
@@ -14,8 +14,8 @@ export class Player {
   private prev: Vec2;
   private cur: Vec2;
 
-  constructor(scene: Phaser.Scene, pos: Vec2, nickname: string) {
-    this.view = new CharacterView(scene, pos, nickname);
+  constructor(scene: Phaser.Scene, pos: Vec2, nickname: string, appearance: Appearance) {
+    this.view = new CharacterView(scene, pos, nickname, appearance);
     this.prev = { ...pos };
     this.cur = { ...pos };
   }

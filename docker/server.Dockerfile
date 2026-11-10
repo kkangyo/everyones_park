@@ -7,6 +7,9 @@ ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 RUN npm install -g corepack@latest && corepack enable
 WORKDIR /app
 
+# better-sqlite3·argon2 네이티브 모듈: 미리 빌드된 바이너리를 못 받으면 직접 빌드한다
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+
 # --- 빌드: 전체 의존성 설치 후 서버 번들 생성 (shared는 번들에 포함됨)
 FROM base AS build
 COPY . .
@@ -24,6 +27,9 @@ COPY --from=build /app/apps/server/dist apps/server/dist
 # 서버가 읽는 맵 (충돌 격자·시작 위치). 그림 파일은 필요 없음
 COPY assets/maps assets/maps
 ENV ASSETS_DIR=/app/assets
+# 계정 DB (SQLite). compose 에서 볼륨으로 붙여서 컨테이너를 다시 만들어도 남게 한다
+RUN mkdir -p /data && chown node:node /data
+ENV DB_PATH=/data/park.db
 
 WORKDIR /app/apps/server
 EXPOSE 2567

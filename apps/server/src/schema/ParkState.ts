@@ -5,6 +5,9 @@ import { schema, t, type SchemaType } from "@colyseus/schema";
 export const PlayerState = schema(
   {
     nickname: t.string().default(""),
+    /** 캐릭터 외형 (3-7). shared/character.ts 의 GENDERS, OUTFITS 값 */
+    gender: t.string().default("male"),
+    outfit: t.string().default(""),
     // 위치는 float64 로 보낸다. number 는 소수를 float32 로 줄여 보내서
     // 클라이언트 예측 보정(서버 위치 + 남은 입력 재적용)이 미세하게 어긋난다
     x: t.float64().default(0),

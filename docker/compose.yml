@@ -12,6 +12,13 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MAX_CLIENTS: ${MAX_CLIENTS:-70}
+      # 시험용 기본값. 클라우드 운영에서는 반드시 바꾼다 (openssl rand -hex 32)
+      AUTH_SECRET: ${AUTH_SECRET:-docker-test-secret-change-me-0123456789}
     ports:
       - "2567:2567"
+    volumes:
+      - park-data:/data
     restart: unless-stopped
+
+volumes:
+  park-data:

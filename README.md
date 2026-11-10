@@ -65,15 +65,30 @@ Vite는 포트가 이미 쓰이고 있으면 다른 포트로 바꾸지 않고 �
 | 주소 / 키 | 내용 |
 | --- | --- |
 | `?debug=1` | 디버그 오버레이 (FPS, 좌표, 타일, 채널) |
-| `?name=철수` | 임시 닉네임 지정 (계정 기능 전까지) |
 | `F1` | 충돌 칸·발밑 상자·클릭 경로 표시 |
 | `/monitor` | Colyseus Monitor: 채널·접속자 확인 (개발 모드 전용) |
 
 ### 환경변수 (`apps/server/.env`)
 
-[apps/server/.env.example](apps/server/.env.example) 참고. `PORT`, `LOG_LEVEL`, `MAX_CLIENTS`(채널 정원, 자동 분할 시험 시 2로), `ASSETS_DIR`.
+[apps/server/.env.example](apps/server/.env.example) 참고. `PORT`, `LOG_LEVEL`, `MAX_CLIENTS`(채널 정원, 자동 분할 시험 시 2로), `ASSETS_DIR`, `DB_PATH`(SQLite 파일, 기본 `apps/server/data.db`), `AUTH_SECRET`(입장 토큰 서명 키, **운영에서 필수**), `TOKEN_TTL_SEC`.
 
 클라이언트 쪽은 실행 명령이 정한다: `CLIENT_PORT`(Vite 포트), `SERVER_URL`(프록시 대상, 기본 `http://localhost:2567`).
+
+## 계정 API
+
+입장 화면이 쓰는 API. 개발 중 curl 로 시험할 수 있다 (서버 직접: `localhost:2567`).
+
+```bash
+# 로그인 (처음 쓰는 닉네임이면 이 PIN 으로 생성). gender·outfit 은 생략 가능
+curl -s localhost:2567/api/login -H 'content-type: application/json' \
+  -d '{"nickname":"따끈한 호떡","pin":"1234","gender":"female","outfit":"coat-red"}'
+curl -s localhost:2567/api/nickname/random                 # 랜덤 닉네임
+curl -s "localhost:2567/api/nickname/check?name=철수"      # 이미 있는 닉네임인지
+```
+
+- 실패하면 `{"error":"코드"}` (코드 목록: `packages/shared/src/protocol.ts` `ApiErrorCode`, 화면 문구: `apps/client/src/i18n/ko.json` `error.*`)
+- 10분 안에 5번 틀리면 IP·닉네임 기준 10분 잠금. 잠금은 메모리에만 있어서 **서버를 재시작하면 풀린다** (개발 중 잠겼을 때)
+- DB 확인: `sqlite3 apps/server/data.db ".schema"` / `"select id, nickname, gender, outfit from users"`
 
 ## 폰 서버 배포
 
@@ -94,10 +109,13 @@ pnpm deploy:stop             # 내리기
   ```
   `~/bin`이 PATH에 없으면 `CADDY_BIN=~/bin/caddy pnpm deploy:phone`.
 - 개발 서버(`pnpm dev`)와 운영 서버는 둘 다 2567 포트를 쓴다. 동시에 띄우지 않는다.
+- 운영 서버는 `AUTH_SECRET` 이 없으면 시작하지 않는다. `deploy:phone` 이 처음 한 번 만들어 `apps/server/.env` 에 저장한다 (바꾸면 발급된 토큰이 모두 무효 → 다시 로그인하면 됨).
+- 계정 DB 는 `apps/server/data.db` (+ `-wal`, `-shm`). 백업할 때는 이 파일들을 같이 복사한다.
+- better-sqlite3·argon2 는 네이티브 모듈이다. arm64 미리 빌드 바이너리를 못 받으면 직접 빌드하므로 `sudo apt install build-essential python3` 가 필요할 수 있다.
 
 ## 임시 그림 다시 만들기
 
 ```bash
 pnpm gen:map         # 타일셋 + 나무 + 공원 맵 (Tiled에서 맵을 직접 고치기 시작하면 실행하지 말 것)
-pnpm gen:character   # 캐릭터 스프라이트시트
+pnpm gen:character   # 캐릭터 몸(body-*.png) + 옷(outfit-*.png) 스프라이트시트
 ```

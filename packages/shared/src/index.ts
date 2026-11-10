@@ -4,3 +4,5 @@ export * from "./collision";
 export * from "./pathfinding";
 export * from "./protocol";
 export * from "./paths";
+export * from "./character";
+export * from "./nickname";

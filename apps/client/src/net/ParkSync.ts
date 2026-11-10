@@ -1,18 +1,36 @@
 import Phaser from "phaser";
-import { FACINGS, MSG, TICK_MS, type Facing, type InputMessage, type PlayerView, type Vec2 } from "@park/shared";
+import {
+  CLOSE_CODE,
+  DEFAULT_APPEARANCE,
+  FACINGS,
+  MSG,
+  TICK_MS,
+  isValidAppearance,
+  type Appearance,
+  type Facing,
+  type InputMessage,
+  type PlayerView,
+  type Vec2,
+} from "@park/shared";
 import { CharacterView } from "../entities/CharacterView";
-import { joinPark, stateCallbacks, type ParkRoom } from "./connection";
+import { stateCallbacks, type ParkRoom } from "./connection";
 import { ServerClock, SnapshotBuffer } from "./Interpolation";
 import { LagSim } from "./LagSim";
 
-export type NetStatus = "connecting" | "online" | "offline";
+export type NetStatus = "online" | "offline";
+
+/** 연결이 끊긴 이유 (화면 안내 문구 선택용) */
+export type LeaveReason = "duplicateLogin" | "disconnected";
 
 export interface NetInfo {
   status: NetStatus;
-  roomId?: string;
-  sessionId?: string;
+  roomId: string;
+  sessionId: string;
   players: number;
-  error?: string;
+  /** 끊긴 경우 이유 */
+  leaveReason?: LeaveReason;
+  /** 끊긴 경우 웹소켓 종료 코드 (디버그용) */
+  leaveCode?: number;
   /** 다른 사람을 보여주는 지연 (ms). 네트워크 흔들림에 따라 자동 조절 */
   interpDelayMs: number;
 }
@@ -31,13 +49,14 @@ interface Remote {
 }
 
 /**
- * 채널 접속, 입력 전송, 다른 사람 표시를 맡는다.
- * 서버에 연결하지 못해도 혼자 걷기는 계속 동작한다.
+ * 입장한 채널의 입력 전송, 다른 사람 표시를 맡는다.
+ * 채널 접속(로그인 토큰)은 입장 화면이 먼저 끝내고 room 을 넘겨 준다.
+ * 연결이 끊겨도 혼자 걷기는 계속 동작한다.
  */
 export class ParkSync {
-  private room?: ParkRoom;
-  private status: NetStatus = "connecting";
-  private error?: string;
+  private status: NetStatus = "online";
+  private leaveReason?: LeaveReason;
+  private leaveCode?: number;
   private readonly remotes = new Map<string, Remote>();
   private readonly lag: LagSim;
   private readonly clock = new ServerClock();
@@ -46,23 +65,15 @@ export class ParkSync {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly nickname: string,
+    private readonly room: ParkRoom,
     lagMs: number,
   ) {
     this.lag = new LagSim(lagMs);
   }
 
-  async connect(): Promise<void> {
-    try {
-      this.room = await joinPark({ nickname: this.nickname });
-    } catch (err) {
-      this.status = "offline";
-      this.error = err instanceof Error ? err.message : String(err);
-      console.warn("[net] 채널 접속 실패", err);
-      return;
-    }
+  /** 상태 콜백을 건다. 이미 받은 상태(나·먼저 와 있던 사람)도 바로 onAdd 로 들어온다 */
+  start(): void {
     const room = this.room;
-    this.status = "online";
     console.info(`[net] 채널 ${room.roomId} 접속 (${room.sessionId})`);
 
     const cb = stateCallbacks(room);
@@ -82,16 +93,18 @@ export class ParkSync {
       }
 
       const remote: Remote = {
-        view: new CharacterView(this.scene, { x: player.x, y: player.y }, player.nickname),
+        view: new CharacterView(this.scene, { x: player.x, y: player.y }, player.nickname, toAppearance(player)),
         buffer: new SnapshotBuffer(),
         latest: { x: player.x, y: player.y },
       };
       this.remotes.set(sessionId, remote);
       const push = () => {
         const snap = { t: room.state.tick * TICK_MS, x: player.x, y: player.y, facing: toFacing(player.facing), moving: player.moving };
+        const appearance = toAppearance(player);
         this.lag.run(() => {
           remote.latest = { x: snap.x, y: snap.y };
           remote.buffer.push(snap);
+          remote.view.setAppearance(appearance);
         });
       };
       push();
@@ -111,16 +124,16 @@ export class ParkSync {
 
     room.onLeave((code) => {
       this.status = "offline";
-      this.error = `연결 끊김 (code ${code})`;
+      this.leaveCode = code;
+      this.leaveReason = code === CLOSE_CODE.duplicateLogin ? "duplicateLogin" : "disconnected";
       for (const r of this.remotes.values()) r.view.destroy();
       this.remotes.clear();
     });
   }
 
   sendInput(msg: InputMessage): void {
-    const room = this.room;
-    if (!room || this.status !== "online") return;
-    this.lag.run(() => room.send(MSG.input, msg));
+    if (this.status !== "online") return;
+    this.lag.run(() => this.room.send(MSG.input, msg));
   }
 
   /** 매 프레임: 다른 사람을 서버 시간 기준으로 조금 과거 시점(보간 지연)으로 그린다 */
@@ -146,19 +159,26 @@ export class ParkSync {
   get info(): NetInfo {
     return {
       status: this.status,
-      roomId: this.room?.roomId,
-      sessionId: this.room?.sessionId,
-      players: this.room ? this.remotes.size + 1 : 0,
-      error: this.error,
+      roomId: this.room.roomId,
+      sessionId: this.room.sessionId,
+      players: this.remotes.size + 1,
+      leaveReason: this.leaveReason,
+      leaveCode: this.leaveCode,
       interpDelayMs: Math.round(this.clock.interpolationDelay),
     };
   }
 
   disconnect(): void {
-    void this.room?.leave();
+    void this.room.leave();
   }
 }
 
 function toFacing(value: string): Facing {
   return (FACINGS as readonly string[]).includes(value) ? (value as Facing) : "down";
+}
+
+/** 서버가 보낸 외형. 모르는 값이면(옛 클라이언트 그림에 없는 옷 등) 기본값 */
+function toAppearance(player: PlayerView): Appearance {
+  const a = { gender: player.gender, outfit: player.outfit };
+  return isValidAppearance(a) ? { gender: a.gender, outfit: a.outfit } : DEFAULT_APPEARANCE;
 }

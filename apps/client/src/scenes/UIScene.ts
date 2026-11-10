@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { DEBUG } from "../debug";
+import { t } from "../i18n";
 import { checkHealth, type ServerStatus } from "../net/health";
 import type { ParkScene } from "./ParkScene";
 
@@ -42,17 +43,15 @@ export class UIScene extends Phaser.Scene {
     if (this.debugText) this.updateDebug(park);
   }
 
-  /** 채널에 접속했으면 채널 정보, 아니면 서버 헬스 상태 */
+  /** 접속 중이면 채널 정보, 끊겼으면 이유 (서버가 꺼진 경우 구분) */
   private updateStatus(park: ParkScene): void {
     const net = park.netInfo;
     if (net.status === "online") {
-      this.statusText.setText(`● 채널 ${net.roomId} · ${net.players}명`).setColor(COLOR.ok);
-    } else if (net.status === "connecting") {
-      this.statusText.setText("● 채널 접속 중…").setColor(COLOR.pending);
-    } else if (this.health === "connected") {
-      this.statusText.setText("● 서버는 켜져 있지만 채널 접속 실패 (새로고침)").setColor(COLOR.bad);
+      this.statusText.setText(t("status.channel", { channel: net.roomId, players: net.players })).setColor(COLOR.ok);
+    } else if (net.leaveReason === "duplicateLogin") {
+      this.statusText.setText(t("status.duplicateLogin")).setColor(COLOR.bad);
     } else {
-      this.statusText.setText(this.health === "checking" ? "● 서버 확인 중…" : "● 서버 연결 안 됨").setColor(COLOR.bad);
+      this.statusText.setText(t(this.health === "disconnected" ? "status.serverDown" : "status.disconnected")).setColor(COLOR.bad);
     }
   }
 
@@ -67,7 +66,7 @@ export class UIScene extends Phaser.Scene {
         `facing ${d.facing}${d.moving ? " (moving)" : ""}`,
         `path   남은 경유점 ${d.pathRemaining}`,
         `F1     충돌·경로 표시 ${d.collisionView ? "켜짐" : "꺼짐"}`,
-        `net    ${d.net.status} room=${d.net.roomId ?? "-"} me=${d.net.sessionId ?? "-"}${d.net.error ? ` (${d.net.error})` : ""}`,
+        `net    ${d.net.status} room=${d.net.roomId} me=${d.net.sessionId}${d.net.leaveCode !== undefined ? ` (code ${d.net.leaveCode})` : ""}`,
         `sync   lag=${d.lagMs}ms 대기입력=${d.pendingInputs} 보정=${d.corrections}회 (마지막 ${d.lastCorrectionPx}px)`,
         `interp 다른 사람 지연 ${d.net.interpDelayMs}ms (자동)`,
       ].join("\n"),

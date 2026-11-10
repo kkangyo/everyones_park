@@ -1,7 +1,7 @@
-import { Room, type Client } from "@colyseus/core";
+import { Room, type AuthContext, type Client } from "@colyseus/core";
 import {
+  CLOSE_CODE,
   MSG,
-  NICKNAME_MAX_LENGTH,
   TICK_MS,
   TICK_SEC,
   facingFromInput,
@@ -10,12 +10,13 @@ import {
   step,
   tileCenter,
   tileOf,
+  type AuthUser,
   type Axis,
   type Facing,
   type InputMessage,
-  type JoinOptions,
   type Vec2,
 } from "@park/shared";
+import { verifyToken } from "../auth/token";
 import { config } from "../config";
 import { createLogger } from "../logger";
 import type { ParkMap } from "../map";
@@ -36,8 +37,16 @@ const MAX_CATCHUP_TICKS = 8;
 /** 입장 위치를 입구 주변으로 흩뿌리는 범위 (타일). 한 점에 겹쳐 서지 않게 */
 const SPAWN_SPREAD_TILES = 3;
 
+type ParkClient = Client<{ auth: AuthUser }>;
+
+/**
+ * userId → 지금 접속 중인 연결 (이 서버 프로세스 안의 모든 채널).
+ * 같은 계정으로 다른 탭·기기에서 들어오면 이전 연결을 끊는다 (한 사람이 두 번 보이지 않게)
+ */
+const activeByUser = new Map<number, ParkClient>();
+
 /** 공원 채널 하나. 정원이 차면 매치메이킹이 새 방(채널)을 만든다 */
-export class ParkRoom extends Room<{ state: ParkState }> {
+export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   state = new ParkState();
   private map!: ParkMap;
   /** sessionId → 아직 처리하지 않은 입력 */
@@ -63,10 +72,30 @@ export class ParkRoom extends Room<{ state: ParkState }> {
     this.patchRate = null;
   }
 
-  onJoin(client: Client, options?: JoinOptions): void {
+  /**
+   * 입장 전 인증 (3-5). POST /api/login 이 발급한 토큰만 받는다. 실패하면 클라이언트 joinOrCreate 가 오류로 끝난다.
+   * 돌려준 값은 onJoin 에서 client.auth 로 읽는다
+   */
+  static async onAuth(token: string | undefined, _options: unknown, context: AuthContext): Promise<AuthUser | null> {
+    const user = verifyToken(token);
+    if (!user) log.info(`auth rejected from ${context.ip ?? "?"}`);
+    return user;
+  }
+
+  onJoin(client: ParkClient): void {
+    const auth = client.auth!; // onAuth 를 통과해야 여기 온다
+    const previous = activeByUser.get(auth.userId);
+    if (previous) {
+      log.info(`duplicate login #${auth.userId} "${auth.nickname}": closing previous ${previous.sessionId}`);
+      previous.leave(CLOSE_CODE.duplicateLogin);
+    }
+    activeByUser.set(auth.userId, client);
+
     const player = new PlayerState();
     const spawn = this.pickSpawn();
-    player.nickname = sanitizeNickname(options?.nickname);
+    player.nickname = auth.nickname;
+    player.gender = auth.gender;
+    player.outfit = auth.outfit;
     player.x = spawn.x;
     player.y = spawn.y;
     player.facing = "down";
@@ -77,7 +106,9 @@ export class ParkRoom extends Room<{ state: ParkState }> {
     log.info(`join  ${this.roomId} ${client.sessionId} "${player.nickname}" (${this.clients.length}/${this.maxClients})`);
   }
 
-  onLeave(client: Client): void {
+  onLeave(client: ParkClient): void {
+    const userId = client.auth?.userId;
+    if (userId !== undefined && activeByUser.get(userId) === client) activeByUser.delete(userId);
     const player = this.state.players.get(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
@@ -88,7 +119,7 @@ export class ParkRoom extends Room<{ state: ParkState }> {
     log.info(`channel ${this.roomId} disposed (dropped inputs: ${this.droppedInputs})`);
   }
 
-  private queueInput(client: Client, message: unknown): void {
+  private queueInput(client: ParkClient, message: unknown): void {
     const player = this.state.players.get(client.sessionId);
     const queue = this.inputQueues.get(client.sessionId);
     const input = parseInput(message);
@@ -164,11 +195,6 @@ export class ParkRoom extends Room<{ state: ParkState }> {
     }
     return entrance; // 다 차 있으면 겹쳐서 입장 (서로 떨어져 나갈 수 있음)
   }
-}
-
-function sanitizeNickname(raw: unknown): string {
-  const name = typeof raw === "string" ? raw.trim().slice(0, NICKNAME_MAX_LENGTH) : "";
-  return name || `손님${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
 const AXES: readonly number[] = [-1, 0, 1];
