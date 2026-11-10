@@ -14,6 +14,7 @@ import {
   type Axis,
   type Facing,
   type InputMessage,
+  type NoticeMessage,
   type Vec2,
 } from "@park/shared";
 import { verifyToken } from "../auth/token";
@@ -21,6 +22,8 @@ import { config } from "../config";
 import { createLogger } from "../logger";
 import type { ParkMap } from "../map";
 import { ParkState, PlayerState } from "../schema/ParkState";
+import { HandsSystem } from "../systems/hands";
+import { TruckSystem } from "../systems/truck";
 
 const log = createLogger("room");
 
@@ -49,6 +52,8 @@ const activeByUser = new Map<number, ParkClient>();
 export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   state = new ParkState();
   private map!: ParkMap;
+  private hands!: HandsSystem;
+  private trucks!: TruckSystem;
   /** sessionId → 아직 처리하지 않은 입력 */
   private readonly inputQueues = new Map<string, InputMessage[]>();
   private droppedInputs = 0;
@@ -64,6 +69,16 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     // 입력은 받는 즉시 처리하지 않고 대기열에 넣었다가 고정 틱마다 하나씩 처리한다.
     // → 네트워크가 흔들려도 다른 사람 눈에 일정한 속도로 보이고, 빨리 보내도 빨라지지 않는다
     this.onMessage(MSG.input, (client, message: unknown) => this.queueInput(client, message));
+
+    // 간식 트럭·양손 (Phase 4)
+    this.hands = new HandsSystem(this.state);
+    this.trucks = new TruckSystem(this.state, this.map.trucks, this.hands, (sessionId, msg) => this.notify(sessionId, msg));
+    this.onMessage(MSG.order, (client, message: unknown) => this.trucks.order(client.sessionId, message));
+    this.onMessage(MSG.cancelOrder, (client) => this.trucks.cancel(client.sessionId));
+    this.onMessage(MSG.eat, (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) this.hands.startEating(player, this.state.tick);
+    });
     // 고정 틱 누산기: 타이머는 틱 간격의 절반마다 깨어나서, 실제로 흐른 시간만큼 틱을 돌린다.
     // (setInterval 만 믿으면 타이머가 밀릴 때 틱 수가 줄어 모두가 느려진다)
     this.lastAdvanceAt = performance.now();
@@ -109,6 +124,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   onLeave(client: ParkClient): void {
     const userId = client.auth?.userId;
     if (userId !== undefined && activeByUser.get(userId) === client) activeByUser.delete(userId);
+    this.trucks.cancel(client.sessionId);
     const player = this.state.players.get(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
@@ -160,6 +176,13 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
       const player = this.state.players.get(sessionId);
       if (input && player) this.applyInput(sessionId, player, input);
     }
+    this.trucks.tick(this.state.tick);
+    this.hands.tick(this.state.tick);
+  }
+
+  /** 한 사람에게만 보내는 알림 (주문 결과 등) */
+  private notify(sessionId: string, msg: NoticeMessage): void {
+    this.clients.get(sessionId)?.send(MSG.notice, msg);
   }
 
   private applyInput(sessionId: string, player: PlayerState, input: InputMessage): void {

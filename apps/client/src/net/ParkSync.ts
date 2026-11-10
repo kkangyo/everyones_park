@@ -9,7 +9,9 @@ import {
   type Appearance,
   type Facing,
   type InputMessage,
+  type NoticeMessage,
   type PlayerView,
+  type TruckView,
   type Vec2,
 } from "@park/shared";
 import { CharacterView } from "../entities/CharacterView";
@@ -62,6 +64,8 @@ export class ParkSync {
   private readonly clock = new ServerClock();
   /** 내 캐릭터 서버 상태가 올 때마다 호출 (지연 흉내 적용 후) */
   onOwnState?: (state: OwnServerState, first: boolean) => void;
+  /** 서버가 나에게만 보낸 알림 (주문 결과 등) */
+  onNotice?: (notice: NoticeMessage) => void;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -122,6 +126,8 @@ export class ParkSync {
       });
     });
 
+    room.onMessage(MSG.notice, (notice: NoticeMessage) => this.lag.run(() => this.onNotice?.(notice)));
+
     room.onLeave((code) => {
       this.status = "offline";
       this.leaveCode = code;
@@ -136,14 +142,49 @@ export class ParkSync {
     this.lag.run(() => this.room.send(MSG.input, msg));
   }
 
+  sendOrder(truck: string, item: string): void {
+    this.send(MSG.order, { truck, item });
+  }
+
+  sendCancelOrder(): void {
+    this.send(MSG.cancelOrder);
+  }
+
+  sendEat(): void {
+    this.send(MSG.eat);
+  }
+
+  private send(type: string, payload?: unknown): void {
+    if (this.status !== "online") return;
+    this.lag.run(() => this.room.send(type, payload));
+  }
+
+  /** 내 캐릭터의 최신 서버 상태 (손·주문). 아직 없으면 undefined */
+  get me(): PlayerView | undefined {
+    return this.room.state.players?.get(this.room.sessionId);
+  }
+
+  /** 트럭 상태 (만드는 중·대기 인원) */
+  truck(id: string): TruckView | undefined {
+    return this.room.state.trucks?.get(id);
+  }
+
+  /** 서버가 마지막으로 보낸 틱 */
+  get serverTick(): number {
+    return this.room.state.tick ?? 0;
+  }
+
   /** 매 프레임: 다른 사람을 서버 시간 기준으로 조금 과거 시점(보간 지연)으로 그린다 */
   render(now: number): void {
     const serverNow = this.clock.toServer(now);
     if (serverNow === null) return;
     const t = serverNow - this.clock.interpolationDelay;
-    for (const r of this.remotes.values()) {
+    for (const [sessionId, r] of this.remotes) {
       const s = r.buffer.sample(t);
       if (s) r.view.setPose(s, s.facing, s.moving);
+      // 손에 든 간식은 위치처럼 보간할 필요가 없어서 최신 상태를 그대로 그린다
+      const hands = this.room.state.players?.get(sessionId)?.hands;
+      if (hands) r.view.setHands(hands);
     }
   }
 

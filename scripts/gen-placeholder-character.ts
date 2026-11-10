@@ -7,8 +7,9 @@
  *   assets/sprites/body-<성별>.png    몸 (그림자, 다리, 신발, 머리, 얼굴)
  *   assets/sprites/outfit-<옷 id>.png 옷 (상의, 팔, 목도리, 바지·치마). 성별·옷 id 는 packages/shared/src/character.ts
  *
- * 모든 시트는 같은 배치: 프레임 32x32, 4열 x 4행
- *   행: down, left, right, up   (apps/client/src/assets.ts 의 CHARACTER.directions 와 같은 순서)
+ * 모든 시트는 같은 배치: 프레임 32x32, 4열 x 8행
+ *   행 0–3: 보통      down, left, right, up   (apps/client/src/assets.ts 의 CHARACTER.directions 와 같은 순서)
+ *   행 4–7: 들고 걷기 down, left, right, up   (팔을 앞으로 모음. 간식 그림은 게임이 손 위치에 따로 그린다)
  *   열: 걷기 0–3. 0번 열은 서 있는 모습으로도 쓴다
  *
  * 최종 그림으로 바꿀 때도 같은 배치·파일 이름을 지키면 코드 수정 없이 교체된다.
@@ -24,6 +25,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const FRAME = 32;
 const DIRECTIONS = ["down", "left", "right", "up"] as const;
 const WALK_FRAMES = 4;
+/** 자세 (행 묶음 순서). assets.ts 의 CHARACTER.poses 와 같은 순서 */
+const POSES = ["normal", "carry"] as const;
+type PoseName = (typeof POSES)[number];
 
 type Dir = (typeof DIRECTIONS)[number];
 
@@ -170,7 +174,7 @@ function drawBody(f: Frame, dir: Dir, step: number, gender: Gender): void {
   }
 }
 
-function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle): void {
+function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle, pose: PoseName): void {
   const p = poseOf(dir, step);
   const coat = hex(style.coat);
   const coatDark = hex(style.coatDark);
@@ -196,7 +200,21 @@ function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle): void 
   }
 
   // 팔
-  if (p.side) {
+  if (pose === "carry") {
+    // 들고 걷기: 팔을 몸 앞으로 모으고 흔들지 않는다
+    if (p.side) {
+      f.rect(14, 16 + p.bob, 2, 3, coatDark);
+      f.rect(10, 18 + p.bob, 5, 2, coatDark);
+    } else if (dir === "down") {
+      f.rect(8, 16 + p.bob, 2, 3, coatDark);
+      f.rect(22, 16 + p.bob, 2, 3, coatDark);
+      f.rect(9, 19 + p.bob, 3, 2, coatDark);
+      f.rect(20, 19 + p.bob, 3, 2, coatDark);
+    } else {
+      f.rect(8, 16 + p.bob, 2, 4, coatDark);
+      f.rect(22, 16 + p.bob, 2, 4, coatDark);
+    }
+  } else if (p.side) {
     f.rect(15 - p.stride, 16 + p.bob, 2, 6, coatDark);
   } else {
     f.rect(8, 16 + p.bob + p.stride, 2, 6, coatDark);
@@ -212,10 +230,13 @@ function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle): void 
   }
 }
 
-function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number) => void): void {
-  const canvas = new Canvas(WALK_FRAMES * FRAME, DIRECTIONS.length * FRAME);
-  DIRECTIONS.forEach((dir, row) => {
-    for (let col = 0; col < WALK_FRAMES; col++) draw(new Frame(canvas, col * FRAME, row * FRAME, dir === "right"), dir, col);
+function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number, pose: PoseName) => void): void {
+  const canvas = new Canvas(WALK_FRAMES * FRAME, POSES.length * DIRECTIONS.length * FRAME);
+  POSES.forEach((pose, poseIndex) => {
+    DIRECTIONS.forEach((dir, dirIndex) => {
+      const row = poseIndex * DIRECTIONS.length + dirIndex;
+      for (let col = 0; col < WALK_FRAMES; col++) draw(new Frame(canvas, col * FRAME, row * FRAME, dir === "right"), dir, col, pose);
+    });
   });
   const out = resolve(ROOT, `assets/sprites/${name}.png`);
   mkdirSync(dirname(out), { recursive: true });
@@ -228,6 +249,6 @@ for (const gender of GENDERS) {
   for (const id of OUTFITS[gender]) {
     const style = OUTFIT_STYLES[id];
     if (!style) throw new Error(`옷 "${id}" 의 그림 설정(OUTFIT_STYLES)이 없습니다`);
-    writeSheet(`outfit-${id}`, (f, dir, step) => drawOutfit(f, dir, step, style));
+    writeSheet(`outfit-${id}`, (f, dir, step, pose) => drawOutfit(f, dir, step, style, pose));
   }
 }

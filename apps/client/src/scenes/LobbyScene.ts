@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { t, translate } from "../i18n";
-import { ApiFailure, login } from "../net/api";
+import { ApiFailure, login, signup } from "../net/api";
 import { joinPark } from "../net/connection";
 import { loadProfile, saveProfile } from "../profile";
 import { LobbyForm, type LobbyValues } from "../ui/LobbyForm";
@@ -14,7 +14,7 @@ const BACKGROUND_ZOOM = 2;
 
 /**
  * 입장 화면 (3-6): 공원 배경 + 닉네임·PIN·캐릭터 입력.
- * '공원 들어가기' → 로그인(처음이면 계정 생성) → 받은 토큰으로 채널 접속 → 공원 씬으로.
+ * 로그인(있는 계정) 또는 가입(새 계정) → 받은 토큰으로 채널 접속 → 공원 씬으로.
  */
 export class LobbyScene extends Phaser.Scene {
   private form?: LobbyForm;
@@ -41,11 +41,16 @@ export class LobbyScene extends Phaser.Scene {
   /** 실패하면 화면에 보여 줄 문구로 예외를 던진다 (폼이 표시) */
   private async enter(values: LobbyValues): Promise<void> {
     let data: ParkSceneData;
+    let signedUp = false;
     try {
-      const res = await login(values);
+      const { nickname, pin, appearance } = values;
+      const res = values.mode === "signup" ? await signup({ nickname, pin, ...appearance! }) : await login({ nickname, pin, ...appearance });
+      signedUp = res.created;
       saveProfile({ nickname: res.user.nickname, gender: res.user.gender, outfit: res.user.outfit });
       data = { room: await joinPark(res.token), user: res.user };
     } catch (err) {
+      // 계정은 만들어졌는데 채널 접속만 실패: 다시 시도는 로그인으로 (가입을 또 누르면 '이미 있는 닉네임')
+      if (signedUp) this.form?.setMode("login");
       throw new Error(errorMessage(err));
     }
     this.scene.start("Park", data);

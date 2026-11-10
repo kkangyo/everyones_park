@@ -1,7 +1,20 @@
 import { schema, t, type SchemaType } from "@colyseus/schema";
 
-// 필드는 shared/protocol.ts 의 PlayerView, ParkStateView 와 맞춘다.
+// 필드는 shared/protocol.ts 의 PlayerView, HeldFoodView, TruckView, ParkStateView 와 맞춘다.
 // schema() 의 기본 필드는 기본값이 없으면 undefined 로 시작한다 (undefined++ → NaN). 반드시 .default() 를 준다.
+
+/** 손에 든 간식 하나 (4-4) */
+export const HeldFoodState = schema(
+  {
+    item: t.string().default(""),
+    /** 먹는 그림 단계 (0 ~ EAT_STAGES-1) */
+    stage: t.uint8().default(0),
+    eating: t.boolean().default(false),
+  },
+  "HeldFoodState",
+);
+export type HeldFoodState = SchemaType<typeof HeldFoodState>;
+
 export const PlayerState = schema(
   {
     nickname: t.string().default(""),
@@ -16,10 +29,28 @@ export const PlayerState = schema(
     moving: t.boolean().default(false),
     /** 마지막으로 처리한 입력 번호 */
     seq: t.uint32().default(0),
+    /** 양손 (최대 HANDS_MAX) */
+    hands: t.array(HeldFoodState),
+    /** 주문 (4-3). 없으면 orderTruck = "" */
+    orderTruck: t.string().default(""),
+    orderItem: t.string().default(""),
+    /** 0 = 만드는 중, 1 = 다음 차례 … */
+    orderQueuePos: t.uint8().default(0),
   },
   "PlayerState",
 );
 export type PlayerState = SchemaType<typeof PlayerState>;
+
+/** 트럭 하나의 공개 상태 (연기 연출, 대기 인원 표시) */
+export const TruckState = schema(
+  {
+    cookingItem: t.string().default(""),
+    readyTick: t.uint32().default(0),
+    waiting: t.uint8().default(0),
+  },
+  "TruckState",
+);
+export type TruckState = SchemaType<typeof TruckState>;
 
 export const ParkState = schema(
   {
@@ -27,6 +58,8 @@ export const ParkState = schema(
     tick: t.uint32().default(0),
     /** sessionId → 플레이어 */
     players: t.map(PlayerState),
+    /** 트럭 id → 트럭 */
+    trucks: t.map(TruckState),
   },
   "ParkState",
 );

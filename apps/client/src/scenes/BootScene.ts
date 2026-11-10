@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { GENDERS } from "@park/shared";
-import { CHARACTER, MAP, PROP_SPRITES, TILESET, allCharacterSheets, bodySheet, walkAnimKey } from "../assets";
+import { GENDERS, MENU, TRUCKS } from "@park/shared";
+import { CHARACTER, FOOD, GENERATED, MAP, PROP_SPRITES, TILESET, allCharacterSheets, bodySheet, foodSheet, idleFrame, truckSheet, walkAnimKey } from "../assets";
 import { t } from "../i18n";
 
 /** 에셋을 불러온 뒤 입장 화면을 시작한다. */
@@ -21,25 +21,43 @@ export class BootScene extends Phaser.Scene {
     for (const sheet of allCharacterSheets()) {
       this.load.spritesheet(sheet.key, sheet.url, { frameWidth: CHARACTER.frameWidth, frameHeight: CHARACTER.frameHeight });
     }
+    for (const item of MENU.keys()) {
+      const sheet = foodSheet(item);
+      this.load.spritesheet(sheet.key, sheet.url, { frameWidth: FOOD.frameWidth, frameHeight: FOOD.frameHeight });
+    }
+    for (const truck of TRUCKS.keys()) {
+      const sheet = truckSheet(truck);
+      this.load.image(sheet.key, sheet.url);
+    }
   }
 
   create(): void {
     this.createAnimations();
+    this.createGeneratedTextures();
     this.scene.start("Lobby");
   }
 
-  /** 걷기 애니메이션은 몸 시트에만 (옷은 몸 프레임을 따라감) */
+  /** 걷기 애니메이션은 몸 시트에만 (옷은 몸 프레임을 따라감). 성별 x 자세 x 방향 */
   private createAnimations(): void {
-    for (const gender of GENDERS) {
-      CHARACTER.directions.forEach((facing, row) => {
-        const first = row * CHARACTER.walkFrames;
-        this.anims.create({
-          key: walkAnimKey(gender, facing),
-          frames: this.anims.generateFrameNumbers(bodySheet(gender).key, { start: first, end: first + CHARACTER.walkFrames - 1 }),
-          frameRate: CHARACTER.walkFrameRate,
-          repeat: -1,
-        });
-      });
-    }
+    for (const gender of GENDERS)
+      for (const pose of CHARACTER.poses)
+        for (const facing of CHARACTER.directions) {
+          const first = idleFrame(facing, pose);
+          this.anims.create({
+            key: walkAnimKey(gender, facing, pose),
+            frames: this.anims.generateFrameNumbers(bodySheet(gender).key, { start: first, end: first + CHARACTER.walkFrames - 1 }),
+            frameRate: CHARACTER.walkFrameRate,
+            repeat: -1,
+          });
+        }
+  }
+
+  /** 그림 파일 없이 코드로 만드는 텍스처 */
+  private createGeneratedTextures(): void {
+    // 트럭 연기 한 알갱이 (흰 동그라미)
+    const g = this.make.graphics({}, false);
+    g.fillStyle(0xffffff, 1).fillCircle(3, 3, 3);
+    g.generateTexture(GENERATED.smoke, 6, 6);
+    g.destroy();
   }
 }

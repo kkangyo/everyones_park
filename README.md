@@ -67,6 +67,7 @@ Vite는 포트가 이미 쓰이고 있으면 다른 포트로 바꾸지 않고 �
 | `?debug=1` | 디버그 오버레이 (FPS, 좌표, 타일, 채널) |
 | `F1` | 충돌 칸·발밑 상자·클릭 경로 표시 |
 | `/monitor` | Colyseus Monitor: 채널·접속자 확인 (개발 모드 전용) |
+| 콘솔 `game` | 개발 서버에서만. 예) `game.scene.getScene("Park").sync.me` (내 손·주문 상태) |
 
 ### 환경변수 (`apps/server/.env`)
 
@@ -74,14 +75,23 @@ Vite는 포트가 이미 쓰이고 있으면 다른 포트로 바꾸지 않고 �
 
 클라이언트 쪽은 실행 명령이 정한다: `CLIENT_PORT`(Vite 포트), `SERVER_URL`(프록시 대상, 기본 `http://localhost:2567`).
 
+## 메뉴·트럭 고치기
+
+- 메뉴: [packages/shared/data/menu.json](packages/shared/data/menu.json) (이름, 조리 시간 `cookSec`, 먹는 시간 `eatSec`)
+- 트럭: [packages/shared/data/trucks.json](packages/shared/data/trucks.json) (이름, 파는 메뉴). 위치는 맵 `trucks` 레이어
+- 새 메뉴·트럭을 넣으면 그림도 있어야 한다: `pnpm gen:food` 의 그림 설정에 추가하거나 같은 이름의 PNG 를 넣는다
+- 서버·클라이언트 모두 JSON 을 시작할 때 검사한다 (없는 메뉴 id 등이면 바로 오류)
+
 ## 계정 API
 
 입장 화면이 쓰는 API. 개발 중 curl 로 시험할 수 있다 (서버 직접: `localhost:2567`).
 
 ```bash
-# 로그인 (처음 쓰는 닉네임이면 이 PIN 으로 생성). gender·outfit 은 생략 가능
-curl -s localhost:2567/api/login -H 'content-type: application/json' \
+# 가입 (새 닉네임만. 있으면 409 NICKNAME_TAKEN). gender·outfit 을 빼면 기본 캐릭터
+curl -s localhost:2567/api/signup -H 'content-type: application/json' \
   -d '{"nickname":"따끈한 호떡","pin":"1234","gender":"female","outfit":"coat-red"}'
+# 로그인 (있는 계정만. 없으면 404 NICKNAME_NOT_FOUND). gender·outfit 을 같이 보내면 캐릭터를 바꿈
+curl -s localhost:2567/api/login -H 'content-type: application/json' -d '{"nickname":"따끈한 호떡","pin":"1234"}'
 curl -s localhost:2567/api/nickname/random                 # 랜덤 닉네임
 curl -s "localhost:2567/api/nickname/check?name=철수"      # 이미 있는 닉네임인지
 ```
@@ -118,4 +128,5 @@ pnpm deploy:stop             # 내리기
 ```bash
 pnpm gen:map         # 타일셋 + 나무 + 공원 맵 (Tiled에서 맵을 직접 고치기 시작하면 실행하지 말 것)
 pnpm gen:character   # 캐릭터 몸(body-*.png) + 옷(outfit-*.png) 스프라이트시트
+pnpm gen:food        # 간식(food/*.png) + 트럭(trucks/*.png) 그림
 ```

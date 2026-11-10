@@ -19,7 +19,8 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "gen:map": "tsx scripts/gen-placeholder-map.ts",
-    "gen:character": "tsx scripts/gen-placeholder-character.ts"
+    "gen:character": "tsx scripts/gen-placeholder-character.ts",
+    "gen:food": "tsx scripts/gen-placeholder-food.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

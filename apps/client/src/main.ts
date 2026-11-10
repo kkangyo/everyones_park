@@ -4,7 +4,7 @@ import { LobbyScene } from "./scenes/LobbyScene";
 import { ParkScene } from "./scenes/ParkScene";
 import { UIScene } from "./scenes/UIScene";
 
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: "game",
   backgroundColor: "#1b2433",
@@ -16,3 +16,6 @@ new Phaser.Game({
   },
   scene: [BootScene, LobbyScene, ParkScene, UIScene],
 });
+
+// 개발 서버에서만: 브라우저 콘솔·자동 테스트에서 게임 상태를 볼 수 있게 (예: game.scene.getScene("Park"))
+if (import.meta.env.DEV) (window as unknown as { game: Phaser.Game }).game = game;

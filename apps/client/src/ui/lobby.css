@@ -164,3 +164,47 @@
   font-size: 11px;
   color: #6f8299;
 }
+
+/* display:flex 등이 hidden 속성을 덮어쓰지 않게 */
+.lobby [hidden] {
+  display: none !important;
+}
+
+.lobby-tabs {
+  display: flex;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #3c4f6b;
+}
+
+.lobby-tabs button {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #9fb3c8;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lobby-tabs button[aria-selected="true"] {
+  border-bottom-color: #e8823a;
+  color: #ffd9a8;
+  font-weight: 600;
+}
+
+.lobby-field + .lobby-field {
+  margin-top: 10px;
+}
+
+.lobby-link {
+  margin: 0 0 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #9fb3c8;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}

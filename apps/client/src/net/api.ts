@@ -6,6 +6,7 @@ import {
   type LoginResponse,
   type NicknameCheckResponse,
   type RandomNicknameResponse,
+  type SignupRequest,
 } from "@park/shared";
 
 /** API 실패. code 로 i18n 문구를 찾는다 (NETWORK: 서버에 닿지 못함) */
@@ -39,6 +40,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function login(req: LoginRequest): Promise<LoginResponse> {
   return request(API.login, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req) });
+}
+
+export function signup(req: SignupRequest): Promise<LoginResponse> {
+  return request(API.signup, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req) });
 }
 
 export async function fetchRandomNickname(): Promise<string> {

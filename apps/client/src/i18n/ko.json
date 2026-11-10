@@ -5,16 +5,21 @@
     "loading": "불러오는 중… {percent}%"
   },
   "lobby": {
+    "tabLogin": "로그인",
+    "tabSignup": "처음이에요",
     "nickname": "닉네임",
     "nicknamePlaceholder": "2–10자",
     "randomNickname": "추천",
     "randomNicknameTitle": "랜덤 닉네임 추천",
-    "nicknameNew": "새 닉네임이에요. 아래 PIN으로 만들어져요",
-    "nicknameExists": "이미 있는 닉네임이에요. 내 닉네임이면 PIN을 입력해 주세요",
+    "nicknameAvailable": "쓸 수 있는 닉네임이에요",
     "pin": "PIN (숫자 4자리)",
-    "pinHint": "처음이면 이 PIN으로 만들어져요. 잊지 않게 기억해 주세요",
+    "pinConfirm": "PIN 한 번 더",
+    "pinHintSignup": "로그인할 때 필요해요. 잊지 않게 기억해 주세요",
     "character": "캐릭터",
+    "changeCharacter": "캐릭터 바꾸기",
+    "keepCharacter": "캐릭터 그대로 두기",
     "enter": "공원 들어가기",
+    "signupEnter": "만들고 들어가기",
     "entering": "들어가는 중…",
     "privacy": "닉네임과 암호화한 PIN, 캐릭터 선택만 저장해요"
   },
@@ -40,17 +45,43 @@
     "NICKNAME_BANNED": "쓸 수 없는 닉네임이에요. 다른 닉네임을 골라 주세요",
     "PIN_FORMAT": "PIN은 숫자 4자리예요",
     "APPEARANCE_INVALID": "캐릭터를 다시 골라 주세요",
-    "WRONG_PIN": "PIN이 맞지 않아요 (남은 기회 {remaining}번). 새 닉네임을 원하면 다른 닉네임을 써 주세요",
+    "WRONG_PIN": "PIN이 맞지 않아요 (남은 기회 {remaining}번)",
     "LOCKED": "여러 번 틀려서 잠시 잠겼어요. {minutes}분 뒤에 다시 시도해 주세요",
     "BAD_REQUEST": "요청이 올바르지 않아요",
     "SERVER_ERROR": "서버에 문제가 생겼어요. 잠시 뒤에 다시 시도해 주세요",
     "NETWORK": "서버에 연결할 수 없어요. 잠시 뒤에 다시 시도해 주세요",
-    "JOIN_FAILED": "공원에 들어가지 못했어요. 다시 시도해 주세요"
+    "JOIN_FAILED": "공원에 들어가지 못했어요. 다시 시도해 주세요",
+    "NICKNAME_TAKEN": "이미 있는 닉네임이에요. 내 닉네임이면 '로그인'에서 들어가 주세요",
+    "NICKNAME_NOT_FOUND": "없는 닉네임이에요. 처음이면 '처음이에요'에서 만들어 주세요",
+    "PIN_MISMATCH": "두 PIN이 서로 달라요"
   },
   "status": {
     "channel": "● 채널 {channel} · {players}명",
     "disconnected": "● 연결이 끊겼어요. 새로고침해 주세요",
     "duplicateLogin": "● 다른 곳에서 같은 닉네임으로 들어와서 연결이 끊겼어요",
     "serverDown": "● 서버 연결 안 됨"
+  },
+  "truck": {
+    "hint": "Space 주문",
+    "cooking": "만드는 중",
+    "waiting": "대기 {count}명",
+    "menuClose": "Esc 닫기"
+  },
+  "order": {
+    "waiting": "{item} 주문 · 대기 {pos}번째",
+    "ordering": "{item} 주문 중…",
+    "cooking": "{item} 만드는 중… {sec}초",
+    "cancel": "취소"
+  },
+  "notice": {
+    "HANDS_FULL": "손이 꽉 찼어요",
+    "NOT_AT_TRUCK": "트럭 앞에서 주문해 주세요",
+    "ALREADY_ORDERED": "이미 {item} 주문을 기다리고 있어요",
+    "INVALID_ORDER": "주문할 수 없는 메뉴예요",
+    "ORDER_CANCELLED_FAR": "트럭에서 멀어져서 {item} 주문이 취소됐어요",
+    "ORDER_READY": "{item} 나왔어요! (Q: 먹기)"
+  },
+  "controls": {
+    "help": "WASD·클릭 이동 · Space 주문 · Q 먹기"
   }
 }

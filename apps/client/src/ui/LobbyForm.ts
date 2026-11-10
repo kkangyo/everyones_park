@@ -6,16 +6,24 @@ import {
   PIN_PATTERN,
   checkNicknameFormat,
   normalizeNickname,
+  type Appearance,
   type Gender,
 } from "@park/shared";
 import { CHARACTER, bodySheet, outfitSheet } from "../assets";
-import { t } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 import { checkNickname, fetchRandomNickname } from "../net/api";
 import type { Profile } from "../profile";
 import "./lobby.css";
 
-export interface LobbyValues extends Profile {
+/** login: 이미 만든 계정으로 들어가기, signup: 새 계정 만들고 들어가기 */
+export type LobbyMode = "login" | "signup";
+
+export interface LobbyValues {
+  mode: LobbyMode;
+  nickname: string;
   pin: string;
+  /** 가입이면 항상, 로그인이면 '캐릭터 바꾸기'를 열었을 때만 */
+  appearance?: Appearance;
 }
 
 /** 입력 중 닉네임 확인 요청을 보내기까지 기다리는 시간 */
@@ -27,21 +35,34 @@ const PREVIEW_FACINGS = ["down", "left", "up", "right"] as const;
 const PREVIEW_SCALE = 3;
 
 /**
- * 입장 화면 입력 폼 (닉네임·PIN·성별·옷). 글자 입력은 Phaser 보다 HTML 이 다루기 쉬워서 DOM 으로 만든다.
+ * 입장 화면 입력 폼. 글자 입력은 Phaser 보다 HTML 이 다루기 쉬워서 DOM 으로 만든다.
+ * - 로그인: 닉네임 + PIN. 캐릭터는 저장된 것 그대로 ('캐릭터 바꾸기'를 열면 바꿀 수 있음)
+ * - 처음이에요: 닉네임(추천) + PIN 두 번 + 캐릭터
  * 캐릭터 미리보기는 Phaser 가 불러 둔 스프라이트시트를 <canvas> 에 몸 → 옷 순서로 겹쳐 그린다.
  */
 export class LobbyForm {
   private readonly form: HTMLFormElement;
+  private readonly tabs: Record<LobbyMode, HTMLButtonElement>;
   private readonly nickname: HTMLInputElement;
+  private readonly random: HTMLButtonElement;
   private readonly pin: HTMLInputElement;
+  private readonly pinConfirmField: HTMLElement;
+  private readonly pinConfirm: HTMLInputElement;
+  private readonly pinHint: HTMLElement;
   private readonly nicknameHint: HTMLElement;
+  private readonly characterBox: HTMLElement;
+  private readonly changeCharacter: HTMLButtonElement;
   private readonly error: HTMLElement;
   private readonly submit: HTMLButtonElement;
   private readonly genderBox: HTMLElement;
   private readonly outfitBox: HTMLElement;
   private readonly preview: CanvasRenderingContext2D;
+  private mode: LobbyMode;
+  /** 로그인 모드에서 '캐릭터 바꾸기'를 열었는지 */
+  private characterOpen = false;
   private gender: Gender;
   private outfit: string;
+  private busy = false;
   private previewTick = 0;
   private readonly previewTimer: number;
   private checkTimer?: number;
@@ -54,6 +75,8 @@ export class LobbyForm {
   ) {
     this.gender = initial.gender;
     this.outfit = initial.outfit;
+    // 이 브라우저에서 들어간 적이 있으면 로그인, 아니면 가입부터
+    this.mode = initial.nickname ? "login" : "signup";
 
     this.form = document.createElement("form");
     this.form.className = "lobby";
@@ -61,26 +84,35 @@ export class LobbyForm {
     this.form.innerHTML = `
       <h1 class="lobby-title"></h1>
       <p class="lobby-tagline"></p>
-      <div class="lobby-character">
-        <canvas class="lobby-preview" width="${CHARACTER.frameWidth * PREVIEW_SCALE}" height="${CHARACTER.frameHeight * PREVIEW_SCALE}"></canvas>
-        <div class="lobby-choices">
-          <div class="lobby-gender" role="radiogroup"></div>
-          <div class="lobby-outfits" role="radiogroup"></div>
-        </div>
+      <div class="lobby-tabs" role="tablist">
+        <button type="button" role="tab" data-mode="login"></button>
+        <button type="button" role="tab" data-mode="signup"></button>
       </div>
       <label class="lobby-field">
         <span data-text="nickname"></span>
         <span class="lobby-row">
-          <input name="nickname" autocomplete="off" spellcheck="false" />
+          <input name="nickname" autocomplete="username" spellcheck="false" />
           <button type="button" class="lobby-random"></button>
         </span>
       </label>
       <p class="lobby-hint" data-role="nickname-hint"></p>
       <label class="lobby-field">
         <span data-text="pin"></span>
-        <input name="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" />
+        <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="4" />
       </label>
-      <p class="lobby-hint" data-text="pinHint"></p>
+      <label class="lobby-field" data-role="pin-confirm">
+        <span data-text="pinConfirm"></span>
+        <input name="pinConfirm" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" />
+      </label>
+      <p class="lobby-hint" data-role="pin-hint"></p>
+      <button type="button" class="lobby-link" data-role="change-character"></button>
+      <div class="lobby-character" data-role="character">
+        <canvas class="lobby-preview" width="${CHARACTER.frameWidth * PREVIEW_SCALE}" height="${CHARACTER.frameHeight * PREVIEW_SCALE}"></canvas>
+        <div class="lobby-choices">
+          <div class="lobby-gender" role="radiogroup"></div>
+          <div class="lobby-outfits" role="radiogroup"></div>
+        </div>
+      </div>
       <p class="lobby-error" role="alert"></p>
       <button type="submit" class="lobby-enter"></button>
       <p class="lobby-privacy"></p>`;
@@ -90,11 +122,15 @@ export class LobbyForm {
     $<HTMLElement>(".lobby-tagline").textContent = t("app.tagline");
     $<HTMLElement>('[data-text="nickname"]').textContent = t("lobby.nickname");
     $<HTMLElement>('[data-text="pin"]').textContent = t("lobby.pin");
-    $<HTMLElement>('[data-text="pinHint"]').textContent = t("lobby.pinHint");
+    $<HTMLElement>('[data-text="pinConfirm"]').textContent = t("lobby.pinConfirm");
     $<HTMLElement>(".lobby-privacy").textContent = t("lobby.privacy");
-    const random = $<HTMLButtonElement>(".lobby-random");
-    random.textContent = t("lobby.randomNickname");
-    random.title = t("lobby.randomNicknameTitle");
+
+    this.tabs = { login: $('[data-mode="login"]'), signup: $('[data-mode="signup"]') };
+    this.tabs.login.textContent = t("lobby.tabLogin");
+    this.tabs.signup.textContent = t("lobby.tabSignup");
+    this.random = $(".lobby-random");
+    this.random.textContent = t("lobby.randomNickname");
+    this.random.title = t("lobby.randomNicknameTitle");
 
     this.nickname = $("input[name=nickname]");
     this.nickname.placeholder = t("lobby.nicknamePlaceholder");
@@ -102,30 +138,45 @@ export class LobbyForm {
     this.nickname.maxLength = NICKNAME_MAX_LENGTH + 4;
     this.nickname.value = initial.nickname;
     this.pin = $("input[name=pin]");
+    this.pinConfirmField = $('[data-role="pin-confirm"]');
+    this.pinConfirm = $("input[name=pinConfirm]");
+    this.pinHint = $('[data-role="pin-hint"]');
     this.nicknameHint = $('[data-role="nickname-hint"]');
+    this.characterBox = $('[data-role="character"]');
+    this.changeCharacter = $('[data-role="change-character"]');
     this.error = $(".lobby-error");
     this.submit = $(".lobby-enter");
-    this.submit.textContent = t("lobby.enter");
     this.genderBox = $(".lobby-gender");
     this.outfitBox = $(".lobby-outfits");
     const canvas = $<HTMLCanvasElement>(".lobby-preview");
     this.preview = canvas.getContext("2d")!;
     this.preview.imageSmoothingEnabled = false;
 
-    this.renderChoices();
+    for (const mode of ["login", "signup"] as const) {
+      this.tabs[mode].addEventListener("click", () => {
+        if (!this.busy) this.setMode(mode);
+      });
+    }
     this.nickname.addEventListener("input", () => this.scheduleNicknameCheck());
-    this.pin.addEventListener("input", () => {
-      this.pin.value = this.pin.value.replace(/\D/g, "").slice(0, 4);
+    for (const input of [this.pin, this.pinConfirm]) {
+      input.addEventListener("input", () => {
+        input.value = input.value.replace(/\D/g, "").slice(0, 4);
+      });
+    }
+    this.random.addEventListener("click", () => void this.suggestNickname());
+    this.changeCharacter.addEventListener("click", () => {
+      this.characterOpen = !this.characterOpen;
+      this.render();
     });
-    random.addEventListener("click", () => void this.suggestNickname());
     this.form.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.handleSubmit();
     });
 
     document.body.appendChild(this.form);
+    this.renderChoices();
+    this.render();
     this.previewTimer = window.setInterval(() => this.drawPreview(), PREVIEW_FRAME_MS);
-    this.drawPreview();
     if (this.nickname.value) {
       this.scheduleNicknameCheck(0);
       this.pin.focus();
@@ -141,6 +192,31 @@ export class LobbyForm {
     this.form.remove();
   }
 
+  /** 탭 전환. 가입은 됐는데 채널 접속이 실패한 경우 입장 화면이 로그인으로 바꿀 때도 쓴다 */
+  setMode(mode: LobbyMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.showError("");
+    this.pinConfirm.value = "";
+    this.render();
+    this.scheduleNicknameCheck(0);
+    (this.nickname.value ? this.pin : this.nickname).focus();
+  }
+
+  /** 모드에 따라 보이는 칸·문구를 바꾼다 */
+  private render(): void {
+    const signup = this.mode === "signup";
+    for (const mode of ["login", "signup"] as const) this.tabs[mode].setAttribute("aria-selected", String(mode === this.mode));
+    this.random.hidden = !signup;
+    this.pinConfirmField.hidden = !signup;
+    this.pinHint.textContent = signup ? t("lobby.pinHintSignup") : "";
+    this.pin.autocomplete = signup ? "new-password" : "current-password";
+    this.changeCharacter.hidden = signup;
+    this.changeCharacter.textContent = this.characterOpen ? t("lobby.keepCharacter") : t("lobby.changeCharacter");
+    this.characterBox.hidden = !signup && !this.characterOpen;
+    this.setBusy(this.busy);
+  }
+
   private renderChoices(): void {
     this.genderBox.replaceChildren(
       ...GENDERS.map((g) =>
@@ -154,7 +230,7 @@ export class LobbyForm {
     );
     this.outfitBox.replaceChildren(
       ...OUTFITS[this.gender].map((o) =>
-        this.choiceButton(t(`character.outfit.${o}` as Parameters<typeof t>[0]), o === this.outfit, () => {
+        this.choiceButton(t(`character.outfit.${o}` as MessageKey), o === this.outfit, () => {
           this.outfit = o;
           this.renderChoices();
         }),
@@ -188,20 +264,25 @@ export class LobbyForm {
     }
   }
 
-  /** 입력이 멈추면 형식을 확인하고, 문제없으면 서버에 '새 닉네임 / 이미 있는 닉네임'을 물어본다 */
+  /**
+   * 입력이 멈추면 형식을 확인하고, 서버에 있는 닉네임인지 물어본다.
+   * 가입: 이미 있으면 안내. 로그인: 없으면 안내.
+   */
   private scheduleNicknameCheck(delay = CHECK_DEBOUNCE_MS): void {
     window.clearTimeout(this.checkTimer);
     this.checkAbort?.abort();
     this.setHint("");
     const name = normalizeNickname(this.nickname.value);
     if (!name) return;
+    const mode = this.mode;
     this.checkTimer = window.setTimeout(async () => {
       const formatError = checkNicknameFormat(name);
       if (formatError) return this.setHint(t(`error.${formatError}`), true);
       this.checkAbort = new AbortController();
       try {
         const { exists } = await checkNickname(name, this.checkAbort.signal);
-        this.setHint(t(exists ? "lobby.nicknameExists" : "lobby.nicknameNew"));
+        if (mode === "signup") this.setHint(exists ? t("error.NICKNAME_TAKEN") : t("lobby.nicknameAvailable"), exists);
+        else if (!exists) this.setHint(t("error.NICKNAME_NOT_FOUND"), true);
       } catch (err) {
         // 금지어 등 서버만 아는 오류는 보여 주고, 연결 문제는 조용히 넘어간다 (들어가기 누를 때 다시 안내)
         const code = (err as { code?: string }).code;
@@ -226,6 +307,7 @@ export class LobbyForm {
   }
 
   private async handleSubmit(): Promise<void> {
+    if (this.busy) return;
     const nickname = normalizeNickname(this.nickname.value);
     const pin = this.pin.value;
     const formatError = checkNicknameFormat(nickname);
@@ -237,11 +319,21 @@ export class LobbyForm {
       this.showError(t("error.PIN_FORMAT"));
       return this.pin.focus();
     }
+    if (this.mode === "signup" && this.pinConfirm.value !== pin) {
+      this.showError(t("error.PIN_MISMATCH"));
+      return this.pinConfirm.focus();
+    }
 
+    const sendAppearance = this.mode === "signup" || this.characterOpen;
     this.showError("");
     this.setBusy(true);
     try {
-      await this.onSubmit({ nickname, pin, gender: this.gender, outfit: this.outfit });
+      await this.onSubmit({
+        mode: this.mode,
+        nickname,
+        pin,
+        appearance: sendAppearance ? { gender: this.gender, outfit: this.outfit } : undefined,
+      });
     } catch (err) {
       this.showError(err instanceof Error ? err.message : String(err));
       this.setBusy(false);
@@ -254,7 +346,8 @@ export class LobbyForm {
   }
 
   private setBusy(busy: boolean): void {
+    this.busy = busy;
     this.submit.disabled = busy;
-    this.submit.textContent = t(busy ? "lobby.entering" : "lobby.enter");
+    this.submit.textContent = busy ? t("lobby.entering") : t(this.mode === "signup" ? "lobby.signupEnter" : "lobby.enter");
   }
 }

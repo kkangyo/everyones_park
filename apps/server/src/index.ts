@@ -13,7 +13,7 @@ import { ParkRoom } from "./rooms/ParkRoom";
 const log = createLogger("server");
 
 const map = loadParkMap();
-log.info(`map loaded: ${map.grid.cols}x${map.grid.rows} tiles, entrance (${map.entrance.x}, ${map.entrance.y})`);
+log.info(`map loaded: ${map.grid.cols}x${map.grid.rows} tiles, entrance (${map.entrance.x}, ${map.entrance.y}), trucks ${map.trucks.length}`);
 
 const db = openDatabase({ path: config.dbPath });
 log.info(`database: ${config.dbPath}`);

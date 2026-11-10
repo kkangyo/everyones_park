@@ -6,7 +6,10 @@
  * 출력
  *   assets/tiles/placeholder.png  32x32 타일 8열 x 2행
  *   assets/sprites/tree-tall.png  32x64 키 큰 나무 (obstacles 의 나무 타일 대신 그려짐)
- *   assets/maps/park.json         Tiled 형식 (ground / obstacles 타일 레이어, spawns 오브젝트 레이어)
+ *   assets/maps/park.json         Tiled 형식 (ground / obstacles 타일 레이어, spawns·trucks 오브젝트 레이어)
+ *
+ * trucks 레이어: 사각형 오브젝트, name = trucks.json 의 트럭 id. 트럭이 차지하는 칸은
+ * obstacles 레이어에 투명 타일(truck)로 막아서, 서버·클라이언트 충돌 격자에 그대로 들어간다.
  *
  * obstacles 타일 속성 (클라이언트가 읽음)
  *   ysort  : true 면 타일 레이어에서 빼서 캐릭터와 앞뒤 순서를 맞춰 그린다 (나무·바위·울타리)
@@ -38,7 +41,15 @@ const T = {
   tree: 6,
   fence: 7,
   rock: 8,
+  /** 트럭 자리 (그림 없음, 충돌만). 트럭 그림은 클라이언트가 trucks 레이어를 보고 따로 그린다 */
+  truck: 9,
 } as const;
+
+/** 트럭 크기 (타일). trucks/<id>.png 그림의 아래쪽 이 크기만큼이 트럭 몸체 */
+const TRUCK_W = 3;
+const TRUCK_H = 2;
+/** 트럭 순서 (trucks.json id). 중앙 광장을 도는 산책로를 따라 시계 방향으로 놓인다 */
+const TRUCK_ORDER = ["bunsik", "eomuk", "bungeoppang", "hotteok", "goguma", "gyeranppang", "drink", "kkochi"];
 
 // ---------------------------------------------------------------------------
 // 난수 (항상 같은 맵이 나오도록 시드 고정)
@@ -266,6 +277,37 @@ function buildMap(): void {
     }
 }
 
+interface TruckObject {
+  name: string;
+  col: number;
+  row: number;
+}
+
+/**
+ * 트럭 8대: 중앙을 도는 산책로 바로 위쪽에, 산책로를 바라보게(앞 = 아래) 놓는다.
+ * 각도는 각 구역으로 가는 길과 겹치지 않게 고름. 나무를 다 심은 뒤에 놓아서 나머지 맵 배치는 바뀌지 않는다.
+ */
+function placeTrucks(center: { x: number; y: number }): TruckObject[] {
+  // 위쪽 4대는 산책로 바깥, 아래쪽 4대는 산책로 안쪽 (모두 산책로를 바라봄). 왼쪽은 호수라 비움
+  const angles = [-140, -115, -65, -15, 50, 70, 110, 140];
+  return TRUCK_ORDER.map((name, i) => {
+    const r = (angles[i]! * Math.PI) / 180;
+    const pathX = Math.round(center.x + Math.cos(r) * 22);
+    const pathY = Math.round(center.y + Math.sin(r) * 15);
+    const col = pathX - 1;
+    const row = pathY - 1 - TRUCK_H; // 트럭 아랫변 = 산책로(3칸 폭) 윗줄 바로 위
+    // 트럭 + 주변 1칸 + 앞 2칸의 나무·바위를 치운다
+    for (let y = row - 1; y <= row + TRUCK_H + 1; y++)
+      for (let x = col - 1; x <= col + TRUCK_W; x++) if (inside(x, y) && obstacles[idx(x, y)] !== T.ice) obstacles[idx(x, y)] = EMPTY;
+    for (let y = row; y < row + TRUCK_H; y++)
+      for (let x = col; x < col + TRUCK_W; x++) {
+        if (obstacles[idx(x, y)] === T.ice) throw new Error(`트럭 "${name}" 이(가) 호수와 겹칩니다 (${x}, ${y})`);
+        setObstacle(x, y, T.truck);
+      }
+    return { name, col, row };
+  });
+}
+
 function toTiledData(layer: number[]): number[] {
   return layer.map((t) => (t === EMPTY ? 0 : t + 1));
 }
@@ -275,6 +317,7 @@ function toTiledData(layer: number[]): number[] {
 const tileset = buildTileset();
 const tallTree = buildTallTree();
 buildMap();
+const trucks = placeTrucks({ x: 60, y: 45 });
 
 const tilesetPath = resolve(ROOT, "assets/tiles/placeholder.png");
 const treePath = resolve(ROOT, "assets/sprites/tree-tall.png");
@@ -297,8 +340,8 @@ const map = {
   height: MAP_H,
   tilewidth: TILE,
   tileheight: TILE,
-  nextlayerid: 4,
-  nextobjectid: 2,
+  nextlayerid: 5,
+  nextobjectid: 2 + trucks.length,
   layers: [
     { id: 1, name: "ground", type: "tilelayer", x: 0, y: 0, width: MAP_W, height: MAP_H, opacity: 1, visible: true, data: toTiledData(ground) },
     { id: 2, name: "obstacles", type: "tilelayer", x: 0, y: 0, width: MAP_W, height: MAP_H, opacity: 1, visible: true, data: toTiledData(obstacles) },
@@ -315,6 +358,28 @@ const map = {
         // 입구 광장 가운데. 좌표는 캐릭터 발밑 위치(px)
         { id: 1, name: "entrance", type: "spawn", point: true, x: 60 * TILE + TILE / 2, y: 83 * TILE + TILE / 2, width: 0, height: 0, rotation: 0, visible: true },
       ],
+    },
+    {
+      id: 4,
+      name: "trucks",
+      type: "objectgroup",
+      draworder: "topdown",
+      x: 0,
+      y: 0,
+      opacity: 1,
+      visible: true,
+      // 사각형 = 트럭 몸체가 차지하는 칸 (px). name = trucks.json 의 id
+      objects: trucks.map((t, i) => ({
+        id: 2 + i,
+        name: t.name,
+        type: "truck",
+        x: t.col * TILE,
+        y: t.row * TILE,
+        width: TRUCK_W * TILE,
+        height: TRUCK_H * TILE,
+        rotation: 0,
+        visible: true,
+      })),
     },
   ],
   tilesets: [

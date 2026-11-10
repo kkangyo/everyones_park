@@ -1,5 +1,9 @@
 // 화면에 보이는 문구는 모두 이 모듈을 거친다. 영어를 추가할 때는 en.json 을 만들고 여기서 고르게 한다.
+import type { LocalizedName } from "@park/shared";
 import ko from "./ko.json";
+
+/** 지금 쓰는 언어. 영어를 추가하면 브라우저 설정 등으로 고른다 */
+export const LANG = "ko";
 
 type Messages = typeof ko;
 
@@ -23,4 +27,9 @@ export function translate(key: string, params?: Record<string, string | number>)
   for (const part of key.split(".")) node = (node as Record<string, unknown> | undefined)?.[part];
   if (typeof node !== "string") return undefined;
   return params ? node.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m)) : node;
+}
+
+/** 데이터 파일(menu.json 등)에 들어 있는 언어별 이름 */
+export function localized(name: LocalizedName): string {
+  return name[LANG] ?? Object.values(name)[0] ?? "";
 }

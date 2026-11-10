@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import {
+  MENU,
   TICK_MS,
   TILE_SIZE,
   findPath,
@@ -10,17 +11,29 @@ import {
   tileOf,
   type AuthUser,
   type CollisionGrid,
+  type NoticeMessage,
   type Vec2,
 } from "@park/shared";
 import { DEPTH, bodySheet, idleFrame } from "../assets";
 import { DEBUG, DEV_KEYS, LAG_MS } from "../debug";
 import { Player } from "../entities/Player";
+import { localized, t } from "../i18n";
 import { KeyboardMove } from "../input/keyboard";
 import { PathFollower } from "../input/pathFollower";
 import type { ParkRoom } from "../net/connection";
 import { ParkSync, type NetInfo, type OwnServerState } from "../net/ParkSync";
 import { Prediction } from "../net/Prediction";
 import { buildParkMap } from "../world/parkMap";
+import { TruckController } from "../world/TruckController";
+
+/** UI 씬이 화면 위쪽에 보여 주는 내 주문 상태 */
+export type OrderStatus =
+  | { kind: "waiting"; item: string; pos: number }
+  | { kind: "ordering"; item: string }
+  | { kind: "cooking"; item: string; sec: number };
+
+/** 공원 씬 → UI 씬 이벤트: 잠깐 보여 줄 안내 문구 */
+export const TOAST_EVENT = "toast";
 
 /** 입장 화면(Lobby)이 로그인·채널 접속을 마치고 넘겨 주는 값 */
 export interface ParkSceneData {
@@ -71,6 +84,7 @@ export class ParkScene extends Phaser.Scene {
   private ghost?: Phaser.GameObjects.Sprite;
   private lastCorrectionPx = 0;
   private corrections = 0;
+  private trucks!: TruckController;
 
   constructor() {
     super("Park");
@@ -120,8 +134,21 @@ export class ParkScene extends Phaser.Scene {
 
     this.sync = new ParkSync(this, room, LAG_MS);
     this.sync.onOwnState = (state, first) => this.onOwnServerState(state, first);
+    this.sync.onNotice = (notice) => this.onNotice(notice);
     this.sync.start();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sync.disconnect());
+
+    // 간식 트럭 (Phase 4)
+    this.trucks = new TruckController(this, park.trucks, this.sync, {
+      position: () => this.player.position,
+      walkTo: (goal) => this.walkTo(goal),
+      isWalking: () => this.follower.active,
+      say: (text) => this.player.view.say(text),
+    });
+    // Q: 들고 있는 간식 먹기 (걷기·서기·앉기 모두 가능)
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q).on("down", () => {
+      if ((this.sync.me?.hands.length ?? 0) > 0) this.sync.sendEat();
+    });
   }
 
   get netInfo(): NetInfo {
@@ -137,7 +164,9 @@ export class ParkScene extends Phaser.Scene {
     }
     // 화면: 내 캐릭터는 직전 틱~현재 틱 사이 보간, 다른 사람은 서버 상태를 약간 과거로 보간
     this.player.render(this.tickAccMs / TICK_MS);
+    this.player.view.setHands(this.sync.me?.hands ?? []);
     this.sync.render(time);
+    this.trucks.update();
 
     this.destMarker.setVisible(this.follower.active);
     if (this.collisionView) this.drawCollisionOverlay(this.collisionView.overlay);
@@ -145,8 +174,11 @@ export class ParkScene extends Phaser.Scene {
 
   private fixedTick(): void {
     const keys = this.keyboard.read();
-    // 키보드를 누르면 클릭 이동은 취소
-    if (isMoving(keys) && this.follower.active) this.follower.cancel();
+    // 키보드를 누르면 클릭 이동(트럭으로 걸어가기 포함)은 취소
+    if (isMoving(keys) && this.follower.active) {
+      this.follower.cancel();
+      this.trucks.cancelPending();
+    }
     const input = isMoving(keys) ? keys : this.follower.next(this.player.position, TICK_MS / 1000);
 
     this.player.tick(input, this.grid, this.sync.othersLatest());
@@ -177,15 +209,15 @@ export class ParkScene extends Phaser.Scene {
 
   getDebugInfo(): ParkDebugInfo {
     const p = this.player.position;
-    const t = tileOf(p, TILE_SIZE);
+    const tile = tileOf(p, TILE_SIZE);
     return {
       zoom: this.cameras.main.zoom,
       player: { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 },
-      tile: { x: t.col, y: t.row },
+      tile: { x: tile.col, y: tile.row },
       facing: this.player.facing,
       moving: this.player.moving,
-      groundTile: this.groundLayer.getTileAt(t.col, t.row)?.index ?? -1,
-      obstacleTile: this.obstacleLayer.getTileAt(t.col, t.row)?.index ?? -1,
+      groundTile: this.groundLayer.getTileAt(tile.col, tile.row)?.index ?? -1,
+      obstacleTile: this.obstacleLayer.getTileAt(tile.col, tile.row)?.index ?? -1,
       collisionView: this.collisionView !== undefined,
       pathRemaining: this.follower.remaining.length,
       net: this.sync.info,
@@ -196,19 +228,49 @@ export class ParkScene extends Phaser.Scene {
     };
   }
 
-  /** 땅을 클릭하면 길을 찾아 그곳으로 걸어간다. 막힌 곳·갈 수 없는 곳은 무시 */
-  private onPointerDown(pointer: Phaser.Input.Pointer): void {
-    if (pointer.button !== 0) return; // 왼쪽 버튼(터치 포함)만
-    const goal = tileOf({ x: pointer.worldX, y: pointer.worldY }, TILE_SIZE);
-    if (isBlockedTile(this.grid, goal.col, goal.row)) return;
+  /** 내 주문 상태 (UI 씬이 매 프레임 읽음). 주문이 없으면 undefined */
+  get orderStatus(): OrderStatus | undefined {
+    const me = this.sync.me;
+    if (!me?.orderTruck) return undefined;
+    const item = localized(MENU.get(me.orderItem)?.name ?? { ko: me.orderItem });
+    if (me.orderQueuePos > 0) return { kind: "waiting", item, pos: me.orderQueuePos };
+    const truck = this.sync.truck(me.orderTruck);
+    if (!truck?.cookingItem) return { kind: "ordering", item };
+    const sec = Math.max(0, Math.ceil(((truck.readyTick - this.sync.serverTick) * TICK_MS) / 1000));
+    return { kind: "cooking", item, sec };
+  }
 
+  cancelOrder(): void {
+    this.sync.sendCancelOrder();
+  }
+
+  /** 서버 알림: 손이 꽉 찼으면 머리 위 말풍선, 나머지는 화면 안내 */
+  private onNotice(notice: NoticeMessage): void {
+    const item = notice.item ? localized(MENU.get(notice.item)?.name ?? { ko: notice.item }) : "";
+    const text = t(`notice.${notice.code}`, { item });
+    if (notice.code === "HANDS_FULL") this.player.view.say(text);
+    else this.events.emit(TOAST_EVENT, text);
+  }
+
+  /** 땅을 클릭하면 길을 찾아 그곳으로 걸어간다. 트럭·메뉴 등 다른 것을 누른 경우는 그쪽에서 처리 */
+  private onPointerDown(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
+    if (pointer.button !== 0 || over.length > 0) return; // 왼쪽 버튼(터치 포함)만
+    this.trucks.cancelPending();
+    this.walkTo({ x: pointer.worldX, y: pointer.worldY });
+  }
+
+  /** 그 지점이 있는 칸으로 길을 찾아 걸어간다. 막힌 곳·갈 수 없는 곳이면 false */
+  private walkTo(target: Vec2): boolean {
+    const goal = tileOf(target, TILE_SIZE);
+    if (isBlockedTile(this.grid, goal.col, goal.row)) return false;
     const path = findPath(this.grid, tileOf(this.player.position, TILE_SIZE), goal);
-    if (!path) return;
+    if (!path) return false;
 
     // 같은 칸을 누르면 그 칸 가운데로만 이동
-    const waypoints = path.length > 0 ? path.map((t) => tileCenter(t, TILE_SIZE)) : [tileCenter(goal, TILE_SIZE)];
+    const waypoints = path.length > 0 ? path.map((step) => tileCenter(step, TILE_SIZE)) : [tileCenter(goal, TILE_SIZE)];
     this.follower.start(waypoints);
     this.drawDestMarker(waypoints[waypoints.length - 1]!);
+    return true;
   }
 
   private drawDestMarker(at: Vec2): void {

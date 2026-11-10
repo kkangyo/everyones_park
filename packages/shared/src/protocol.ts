@@ -12,7 +12,35 @@ export const FACINGS: readonly Facing[] = ["up", "down", "left", "right"];
 export const MSG = {
   /** 클라 → 서버: 한 틱 동안의 이동 입력 */
   input: "input",
+  /** 클라 → 서버: 간식 주문 (OrderMessage). 트럭 앞에서만 */
+  order: "order",
+  /** 클라 → 서버: 주문 취소 (내용 없음) */
+  cancelOrder: "cancelOrder",
+  /** 클라 → 서버: 들고 있는 간식 먹기 시작 (내용 없음) */
+  eat: "eat",
+  /** 서버 → 클라: 나에게만 보내는 알림 (NoticeMessage) */
+  notice: "notice",
 } as const;
+
+export interface OrderMessage {
+  truck: string;
+  item: string;
+}
+
+/**
+ * 서버 알림 코드. 화면 문구는 클라이언트 i18n (notice.*)
+ * - HANDS_FULL: 손이 꽉 차서 주문 불가 (머리 위 말풍선)
+ * - NOT_AT_TRUCK / ALREADY_ORDERED / INVALID_ORDER: 주문 거절
+ * - ORDER_CANCELLED_FAR: 트럭에서 멀어져서 취소됨
+ * - ORDER_READY: 간식을 받음
+ */
+export type NoticeCode = "HANDS_FULL" | "NOT_AT_TRUCK" | "ALREADY_ORDERED" | "INVALID_ORDER" | "ORDER_CANCELLED_FAR" | "ORDER_READY";
+
+export interface NoticeMessage {
+  code: NoticeCode;
+  /** 관련된 메뉴 id */
+  item?: string;
+}
 
 /** 서버가 연결을 끊을 때 쓰는 코드 (웹소켓 4000–4999 는 앱 전용) */
 export const CLOSE_CODE = {
@@ -42,6 +70,31 @@ export interface PlayerView {
   moving: boolean;
   /** 서버가 마지막으로 처리한 입력 번호 (내 캐릭터 예측 보정용) */
   seq: number;
+  /** 양손에 든 간식 (최대 HANDS_MAX) */
+  hands: HeldFoodView[];
+  /** 주문한 트럭 id. 주문 없으면 "" */
+  orderTruck: string;
+  /** 주문한 메뉴 id */
+  orderItem: string;
+  /** 대기 순서. 0 = 지금 만드는 중, 1 = 다음 차례 … */
+  orderQueuePos: number;
+}
+
+export interface HeldFoodView {
+  /** 메뉴 id */
+  item: string;
+  /** 먹는 그림 단계 (0 ~ EAT_STAGES-1) */
+  stage: number;
+  eating: boolean;
+}
+
+export interface TruckView {
+  /** 지금 만드는 메뉴 id. 쉬는 중이면 "" (연기 연출) */
+  cookingItem: string;
+  /** 다 만들어지는 서버 틱 (cookingItem 이 있을 때만) */
+  readyTick: number;
+  /** 기다리는 사람 수 (만드는 중인 사람 제외) */
+  waiting: number;
 }
 
 /** 서버 상태 최상위 (클라이언트가 읽는 형태) */
@@ -49,13 +102,17 @@ export interface ParkStateView {
   /** 서버 틱 번호. tick * TICK_MS = 서버 시간(ms) */
   tick: number;
   players: Map<string, PlayerView>;
+  /** 트럭 id → 트럭 상태 */
+  trucks: Map<string, TruckView>;
 }
 
 // ---- HTTP API (계정) ----
 
 export const API = {
-  /** POST LoginRequest → LoginResponse */
+  /** POST LoginRequest → LoginResponse. 이미 있는 계정만 */
   login: "/api/login",
+  /** POST SignupRequest → LoginResponse. 새 계정만 (만들고 바로 로그인) */
+  signup: "/api/signup",
   /** GET → RandomNicknameResponse */
   randomNickname: "/api/nickname/random",
   /** GET ?name=닉네임 → NicknameCheckResponse */
@@ -65,9 +122,16 @@ export const API = {
 export interface LoginRequest {
   nickname: string;
   pin: string;
-  /** 고른 캐릭터. 처음이면 이 값으로 만들고, 이미 있는 계정이면 이 값으로 바꾼다. 없으면 저장된 값 그대로 */
+  /** 캐릭터를 바꾸려면 둘 다 보낸다. 없으면 저장된 캐릭터 그대로 */
   gender?: Gender;
   outfit?: string;
+}
+
+export interface SignupRequest {
+  nickname: string;
+  pin: string;
+  gender: Gender;
+  outfit: string;
 }
 
 /** 로그인한 사람 (토큰 안에도 같은 정보가 들어 있다) */
@@ -97,6 +161,10 @@ export interface NicknameCheckResponse {
 export type ApiErrorCode =
   | NicknameFormatError
   | "NICKNAME_BANNED"
+  /** 가입: 이미 있는 닉네임 */
+  | "NICKNAME_TAKEN"
+  /** 로그인: 없는 닉네임 */
+  | "NICKNAME_NOT_FOUND"
   | "PIN_FORMAT"
   | "APPEARANCE_INVALID"
   | "WRONG_PIN"

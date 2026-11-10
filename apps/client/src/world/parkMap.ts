@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { collisionGridFromTiled, type CollisionGrid, type Vec2 } from "@park/shared";
+import { collisionGridFromTiled, truckPlacementsFromTiled, type CollisionGrid, type TruckPlacement, type Vec2 } from "@park/shared";
 import { DEPTH, MAP, PROP_SPRITES, TILESET } from "../assets";
 
 export interface ParkMapView {
@@ -8,6 +8,8 @@ export interface ParkMapView {
   obstacleLayer: Phaser.Tilemaps.TilemapLayer;
   grid: CollisionGrid;
   entrance: Vec2;
+  /** 트럭 위치 (서버와 같은 함수로 같은 JSON 에서 읽음). 그림은 TruckView 가 그린다 */
+  trucks: TruckPlacement[];
 }
 
 /** 공원 맵을 씬에 그린다. 공원 씬과 입장 화면 배경이 같이 쓴다 */
@@ -27,7 +29,8 @@ export function buildParkMap(scene: Phaser.Scene): ParkMapView {
   const obj = map.findObject(MAP.layers.spawns, (o) => o.name === MAP.entranceSpawn);
   if (!obj || obj.x === undefined || obj.y === undefined) throw new Error(`시작 위치 "${MAP.entranceSpawn}" 을(를) 맵에서 찾을 수 없습니다`);
 
-  return { map, groundLayer, obstacleLayer, grid, entrance: { x: obj.x, y: obj.y } };
+  const trucks = truckPlacementsFromTiled(raw, MAP.layers.trucks);
+  return { map, groundLayer, obstacleLayer, grid, entrance: { x: obj.x, y: obj.y }, trucks };
 }
 
 /**
