@@ -7,6 +7,8 @@ export interface Snapshot {
   y: number;
   facing: Facing;
   moving: boolean;
+  /** 자리에 앉아 있음 (5-2) */
+  seated: boolean;
 }
 
 /** 이 거리(px) 이상 한 번에 바뀌면 보간하지 않고 순간이동으로 본다 (보정·텔레포트 등) */
@@ -37,7 +39,7 @@ export class SnapshotBuffer {
   }
 
   /** t(서버 시간) 시점의 모습. 버퍼보다 늦으면 마지막 값 그대로 (앞질러 예측하지 않음) */
-  sample(t: number): (Vec2 & { facing: Facing; moving: boolean }) | null {
+  sample(t: number): Snapshot | null {
     const snaps = this.snaps;
     if (snaps.length === 0) return null;
     const first = snaps[0]!;
@@ -48,7 +50,7 @@ export class SnapshotBuffer {
       if (t >= a.t) {
         if (t >= b.t) return b;
         const k = (t - a.t) / (b.t - a.t);
-        return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, facing: b.facing, moving: b.moving };
+        return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, facing: b.facing, moving: b.moving, seated: b.seated };
       }
     }
     return snaps[snaps.length - 1]!;

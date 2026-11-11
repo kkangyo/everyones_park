@@ -21,7 +21,7 @@ const NUMBER_KEYS = ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIG
 
 /**
  * 간식 트럭 다루기 (4-1 ~ 4-3, 클라이언트 쪽).
- * - 트럭 앞에 서면 'Space 주문' 안내, Space 또는 트럭 클릭 → 메뉴 말풍선
+ * - 트럭 앞에 서면 'Space 주문' 안내, Space·트럭 클릭·화면의 '주문' 버튼 → 메뉴 말풍선
  * - 멀리서 트럭을 클릭하면 트럭 앞까지 걸어가서 메뉴를 연다
  * - 손이 꽉 찼으면 메뉴 대신 '손이 꽉 찼어요' 말풍선 (서버도 다시 확인한다)
  */
@@ -47,12 +47,20 @@ export class TruckController {
 
     const kb = scene.input.keyboard!;
     const K = Phaser.Input.Keyboard.KeyCodes;
-    kb.addKey(K.SPACE, true).on("down", () => {
-      const truck = this.truckInFront();
-      if (truck) this.interact(truck, false);
-    });
+    kb.addKey(K.SPACE, true).on("down", () => this.openMenuInFront());
     kb.addKey(K.ESC).on("down", () => this.closeMenu());
     NUMBER_KEYS.forEach((name, i) => kb.addKey(K[name]).on("down", () => this.menu?.chooseIndex(i)));
+  }
+
+  /** 지금 서 있는 트럭 앞에서 주문할 수 있는지 (메뉴가 닫혀 있고 기다리는 주문이 없을 때). 터치 '주문' 버튼 표시용 */
+  canOrderHere(): boolean {
+    return !this.menu && !this.sync.me?.orderTruck && this.truckInFront() !== undefined;
+  }
+
+  /** Space·'주문' 버튼: 서 있는 트럭의 메뉴를 연다 */
+  openMenuInFront(): void {
+    const truck = this.truckInFront();
+    if (truck) this.interact(truck, false);
   }
 
   /** 클릭 이동 등으로 다른 곳에 가기 시작하면 '트럭에 가서 메뉴 열기'를 취소 */
@@ -73,6 +81,8 @@ export class TruckController {
     if (this.menu) {
       const open = this.views.find((v) => v.placement.def.id === this.menu!.truckId)!;
       if (!isAtTruckFront(pos, open.placement)) this.closeMenu();
+      // 화면 크기·카메라 위치에 맞춰 트럭 위 또는 아래에
+      else this.menu.place(open.placement, this.scene.cameras.main);
     }
 
     // 클릭한 트럭에 도착
@@ -104,7 +114,11 @@ export class TruckController {
     });
   }
 
-  private closeMenu(): void {
+  get menuOpen(): boolean {
+    return this.menu !== undefined;
+  }
+
+  closeMenu(): void {
     this.menu?.destroy();
     this.menu = undefined;
   }

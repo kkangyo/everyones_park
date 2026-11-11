@@ -1,0 +1,12 @@
+{
+  "trucks": [
+    { "id": "bunsik", "name": { "ko": "분식 트럭" }, "menu": ["tteokbokki", "sundae", "twigim"] },
+    { "id": "eomuk", "name": { "ko": "어묵 트럭" }, "menu": ["eomuk", "eomuk-soup"] },
+    { "id": "bungeoppang", "name": { "ko": "붕어빵 트럭" }, "menu": ["bungeoppang-red", "bungeoppang-cream", "ttangkongppang"] },
+    { "id": "hotteok", "name": { "ko": "호떡 트럭" }, "menu": ["hotteok-honey", "hotteok-seed"] },
+    { "id": "goguma", "name": { "ko": "군고구마·군밤 트럭" }, "menu": ["goguma", "gunbam"] },
+    { "id": "gyeranppang", "name": { "ko": "계란빵 트럭" }, "menu": ["gyeranppang"] },
+    { "id": "drink", "name": { "ko": "음료 트럭" }, "menu": ["yuja-tea", "hot-choco", "sikhye"] },
+    { "id": "kkochi", "name": { "ko": "꼬치 트럭" }, "menu": ["dakkochi"] }
+  ]
+}

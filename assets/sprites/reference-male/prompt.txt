@@ -1,0 +1,10 @@
+Use case: stylized-concept. Create a production pixel-art sprite atlas based on Image 1 (the user's male portrait): young adult man, pale warm skin, center-parted wavy black curtain hair, delicate face, black open blazer over dark shirt, black trousers and shoes, tiny gold necklace and earrings only if readable. Cozy Korean winter park RPG style, elevated three-quarter top-down orthogonal camera, top-left light, crisp native 32x32 pixel clusters. Image 2 (existing body sheet) is ONLY scale/layout reference, not appearance.
+
+Output actual transparent RGBA PNG exactly 128x896 pixels, 4 columns x28 rows of 32x32 cells, no spacing, labels, scenery, objects, grids, checkerboard or borders. A fully dressed unified PREVIEW sheet is requested in this pass. Each sprite about 14 pixels wide and 27 pixels high, bottom center anchor (16,32).
+Row order exactly:
+0 normal down;1 normal left;2 normal right;3 normal up;4 normal down-left;5 normal down-right;6 normal up-left;7 normal up-right;
+8 carry down;9 carry left;10 carry right;11 carry up;12 carry down-left;13 carry down-right;14 carry up-left;15 carry up-right;
+16 sit down;17 sit left;18 sit right;19 sit up;
+20 sitCarry down;21 sitCarry left;22 sitCarry right;23 sitCarry up;
+24 lie HEAD toward down;25 lie HEAD toward left;26 lie HEAD toward right;27 lie HEAD toward up.
+Rows0-15 columns neutral,left foot forward,neutral,right foot forward, torso rises 1px in columns1/3. Carry arms forward supporting empty space at y20 (up-facing y18). Rows16-27 columns base eyes open,inhale torso up1px,base eyes closed,inhale up1px. Sit torso lower3px and bent legs. sitCarry supporting empty arms. Lying supine human, stable footprint, head direction as specified, whole body fits cell. No food, furniture or held items. Real diagonal views, never rotated frontal sprites. Same individual and clothing in all112 cells. Pixel precision and layout have priority; do not omit any rows.

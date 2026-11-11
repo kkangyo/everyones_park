@@ -11,6 +11,10 @@
  * trucks 레이어: 사각형 오브젝트, name = trucks.json 의 트럭 id. 트럭이 차지하는 칸은
  * obstacles 레이어에 투명 타일(truck)로 막아서, 서버·클라이언트 충돌 격자에 그대로 들어간다.
  *
+ * seats 레이어 (5-1): 사각형 오브젝트 = 앉을 자리. 속성 kind(bench), slots(칸 수), facing(앉아서 보는 방향).
+ * 자리 칸도 obstacles 레이어에 벤치 타일로 막는다 (걸어서 지나갈 수 없음). 벤치 타일은 ysort 없이 땅 높이에 그려서
+ * 앉은 캐릭터가 항상 벤치 위에 보인다.
+ *
  * obstacles 타일 속성 (클라이언트가 읽음)
  *   ysort  : true 면 타일 레이어에서 빼서 캐릭터와 앞뒤 순서를 맞춰 그린다 (나무·바위·울타리)
  *   sprite : 타일 대신 그릴 스프라이트 이름. 아랫변을 타일 아랫변에 맞춰 그린다 (위로 삐져나옴)
@@ -43,6 +47,10 @@ const T = {
   rock: 8,
   /** 트럭 자리 (그림 없음, 충돌만). 트럭 그림은 클라이언트가 trucks 레이어를 보고 따로 그린다 */
   truck: 9,
+  /** 벤치. 앉아서 보는 방향별 (등받이가 반대쪽). 가로로 이어 붙이면 긴 벤치가 된다 */
+  benchDown: 10,
+  benchUp: 11,
+  benchLeft: 12,
 } as const;
 
 /** 트럭 크기 (타일). trucks/<id>.png 그림의 아래쪽 이 크기만큼이 트럭 몸체 */
@@ -131,7 +139,43 @@ const painters: Record<number, TilePainter> = {
         if (dx * dx + dy * dy <= 1) c.set(ox + x, oy + y, hex(y < 14 ? "#ffffff" : "#8a94a0"));
       }
   },
+  [T.benchDown]: (c, ox, oy) => paintBench(c, ox, oy, "down"),
+  [T.benchUp]: (c, ox, oy) => paintBench(c, ox, oy, "up"),
+  [T.benchLeft]: (c, ox, oy) => paintBench(c, ox, oy, "left"),
 };
+
+/** 나무 벤치 한 칸. 위·아래를 보는 벤치는 가로로, 왼쪽을 보는 벤치는 세로로 이어진다 */
+function paintBench(c: Canvas, ox: number, oy: number, facing: "down" | "up" | "left"): void {
+  c.rect(ox, oy, TILE, TILE, CLEAR);
+  const wood = hex("#9a6a3f");
+  const woodDark = hex("#6e4a2a");
+  const snow = hex("#ffffff");
+  const leg = hex("#4a4f57");
+  if (facing === "left") {
+    // 세로 벤치: 앉는 판(왼쪽) + 등받이(오른쪽)
+    c.rect(ox + 5, oy + 2, 4, 4, leg);
+    c.rect(ox + 5, oy + 26, 4, 4, leg);
+    c.rect(ox + 6, oy, 14, TILE, wood);
+    for (let y = 0; y < TILE; y += 8) c.rect(ox + 6, oy + y, 14, 1, woodDark);
+    c.rect(ox + 21, oy, 5, TILE, woodDark);
+    c.rect(ox + 21, oy, 1, TILE, snow);
+    return;
+  }
+  const seatTop = facing === "down" ? 12 : 8;
+  // 다리
+  c.rect(ox + 3, oy + seatTop + 8, 3, 7, leg);
+  c.rect(ox + 26, oy + seatTop + 8, 3, 7, leg);
+  // 앉는 판 (널빤지 줄)
+  c.rect(ox, oy + seatTop, TILE, 9, wood);
+  c.rect(ox, oy + seatTop + 3, TILE, 1, woodDark);
+  c.rect(ox, oy + seatTop + 6, TILE, 1, woodDark);
+  c.rect(ox, oy + seatTop + 8, TILE, 1, woodDark);
+  // 등받이 (보는 방향 반대쪽) + 위에 쌓인 눈
+  const backTop = facing === "down" ? 3 : seatTop + 11;
+  c.rect(ox, oy + backTop, TILE, 6, woodDark);
+  c.rect(ox, oy + backTop + 2, TILE, 1, wood);
+  c.rect(ox, oy + backTop, TILE, 1, snow);
+}
 
 /** 키 큰 나무 (32x64). 충돌은 밑동 타일 한 칸, 윗부분은 위쪽 칸을 덮어서 그 뒤에 서면 가려진다 */
 function buildTallTree(): Canvas {
@@ -308,6 +352,60 @@ function placeTrucks(center: { x: number; y: number }): TruckObject[] {
   });
 }
 
+interface BenchObject {
+  name: string;
+  col: number;
+  row: number;
+  /** 칸 수 = 벤치 길이 (타일) */
+  slots: number;
+  facing: "down" | "up" | "left";
+}
+
+/** 벤치 자리 (기획서 6장: 벤치당 2명). 구역별 풍경을 보도록 놓는다 */
+const BENCHES: BenchObject[] = [
+  // 중앙 광장 북쪽(남쪽을 봄)·남쪽(북쪽을 봄). 가운데 세로 길(59–61열)은 비움
+  { name: "bench-plaza-n1", col: 56, row: 40, slots: 2, facing: "down" },
+  { name: "bench-plaza-n2", col: 63, row: 40, slots: 2, facing: "down" },
+  { name: "bench-plaza-s1", col: 56, row: 50, slots: 2, facing: "up" },
+  { name: "bench-plaza-s2", col: 63, row: 50, slots: 2, facing: "up" },
+  // 입구 광장
+  { name: "bench-entrance-1", col: 52, row: 79, slots: 2, facing: "down" },
+  { name: "bench-entrance-2", col: 67, row: 79, slots: 2, facing: "down" },
+  // 호숫가: 호수(서쪽)를 봄
+  { name: "bench-lake", col: 46, row: 34, slots: 2, facing: "left" },
+  // 전망 언덕: 난간 너머(북쪽)를 봄
+  { name: "bench-hill", col: 91, row: 13, slots: 2, facing: "up" },
+  // 눈사람 광장
+  { name: "bench-snowman", col: 91, row: 51, slots: 2, facing: "down" },
+];
+
+const BENCH_TILE = { down: T.benchDown, up: T.benchUp, left: T.benchLeft } as const;
+
+/** 벤치 크기 (타일). 옆을 보는 벤치는 세로로 길다 */
+function benchSize(b: BenchObject): { w: number; h: number } {
+  return b.facing === "left" ? { w: 1, h: b.slots } : { w: b.slots, h: 1 };
+}
+
+/** 벤치를 놓고 주변 1칸 + 앞 2칸의 나무·바위를 치운다 (일어나서 설 자리). 트럭 다음에 놓는다 */
+function placeBenches(): void {
+  for (const b of BENCHES) {
+    const { w, h } = benchSize(b);
+    const front = { down: [0, 1], up: [0, -1], left: [-1, 0] }[b.facing];
+    for (let y = b.row - 1; y <= b.row + h; y++)
+      for (let x = b.col - 1; x <= b.col + w; x++) clearForBench(b, x, y);
+    for (let k = 1; k <= 2; k++)
+      for (let y = b.row; y < b.row + h; y++) for (let x = b.col; x < b.col + w; x++) clearForBench(b, x + front[0]! * k, y + front[1]! * k);
+    for (let y = b.row; y < b.row + h; y++) for (let x = b.col; x < b.col + w; x++) setObstacle(x, y, BENCH_TILE[b.facing]);
+  }
+}
+
+function clearForBench(b: BenchObject, x: number, y: number): void {
+  if (!inside(x, y)) return;
+  const t = obstacles[idx(x, y)];
+  if (t === T.ice || t === T.truck || t === T.fence) throw new Error(`벤치 "${b.name}" 주변 (${x}, ${y}) 이(가) 호수·트럭·난간과 겹칩니다`);
+  obstacles[idx(x, y)] = EMPTY;
+}
+
 function toTiledData(layer: number[]): number[] {
   return layer.map((t) => (t === EMPTY ? 0 : t + 1));
 }
@@ -318,6 +416,7 @@ const tileset = buildTileset();
 const tallTree = buildTallTree();
 buildMap();
 const trucks = placeTrucks({ x: 60, y: 45 });
+placeBenches();
 
 const tilesetPath = resolve(ROOT, "assets/tiles/placeholder.png");
 const treePath = resolve(ROOT, "assets/sprites/tree-tall.png");
@@ -340,8 +439,8 @@ const map = {
   height: MAP_H,
   tilewidth: TILE,
   tileheight: TILE,
-  nextlayerid: 5,
-  nextobjectid: 2 + trucks.length,
+  nextlayerid: 6,
+  nextobjectid: 2 + trucks.length + BENCHES.length,
   layers: [
     { id: 1, name: "ground", type: "tilelayer", x: 0, y: 0, width: MAP_W, height: MAP_H, opacity: 1, visible: true, data: toTiledData(ground) },
     { id: 2, name: "obstacles", type: "tilelayer", x: 0, y: 0, width: MAP_W, height: MAP_H, opacity: 1, visible: true, data: toTiledData(obstacles) },
@@ -380,6 +479,36 @@ const map = {
         rotation: 0,
         visible: true,
       })),
+    },
+    {
+      id: 5,
+      name: "seats",
+      type: "objectgroup",
+      draworder: "topdown",
+      x: 0,
+      y: 0,
+      opacity: 1,
+      visible: true,
+      // 사각형 = 자리가 차지하는 칸 (px). 속성은 shared/seats.ts 의 seatsFromTiled 참고
+      objects: BENCHES.map((b, i) => {
+        const { w, h } = benchSize(b);
+        return {
+          id: 2 + trucks.length + i,
+          name: b.name,
+          type: "seat",
+          x: b.col * TILE,
+          y: b.row * TILE,
+          width: w * TILE,
+          height: h * TILE,
+          rotation: 0,
+          visible: true,
+          properties: [
+            { name: "kind", type: "string", value: "bench" },
+            { name: "slots", type: "int", value: b.slots },
+            { name: "facing", type: "string", value: b.facing },
+          ],
+        };
+      }),
     },
   ],
   tilesets: [

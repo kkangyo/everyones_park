@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { GENDERS, MENU, TRUCKS } from "@park/shared";
-import { CHARACTER, FOOD, GENERATED, MAP, PROP_SPRITES, TILESET, allCharacterSheets, bodySheet, foodSheet, idleFrame, truckSheet, walkAnimKey } from "../assets";
+import { MENU, TRUCKS } from "@park/shared";
+import { BODY_IDS, CHARACTER, FOOD, GENERATED, MAP, PROP_SPRITES, TILESET, allCharacterSheets, bodySheet, foodSheet, idleFrame, poseAnimKey, truckSheet } from "../assets";
 import { t } from "../i18n";
 
 /** 에셋을 불러온 뒤 입장 화면을 시작한다. */
@@ -37,16 +37,16 @@ export class BootScene extends Phaser.Scene {
     this.scene.start("Lobby");
   }
 
-  /** 걷기 애니메이션은 몸 시트에만 (옷은 몸 프레임을 따라감). 성별 x 자세 x 방향 */
+  /** 걷기·숨쉬기 애니메이션은 몸 시트에만 (옷은 몸 프레임을 따라감). 몸 그림 x 자세 x 방향 */
   private createAnimations(): void {
-    for (const gender of GENDERS)
-      for (const pose of CHARACTER.poses)
-        for (const facing of CHARACTER.directions) {
+    for (const bodyId of BODY_IDS)
+      for (const { pose, directions, frameRate } of CHARACTER.rows)
+        for (const facing of directions) {
           const first = idleFrame(facing, pose);
           this.anims.create({
-            key: walkAnimKey(gender, facing, pose),
-            frames: this.anims.generateFrameNumbers(bodySheet(gender).key, { start: first, end: first + CHARACTER.walkFrames - 1 }),
-            frameRate: CHARACTER.walkFrameRate,
+            key: poseAnimKey(bodyId, facing, pose),
+            frames: this.anims.generateFrameNumbers(bodySheet(bodyId).key, { start: first, end: first + CHARACTER.framesPerRow - 1 }),
+            frameRate,
             repeat: -1,
           });
         }

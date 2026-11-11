@@ -4,12 +4,13 @@ import {
   NICKNAME_MAX_LENGTH,
   OUTFITS,
   PIN_PATTERN,
+  bodyIdOf,
   checkNicknameFormat,
   normalizeNickname,
   type Appearance,
   type Gender,
 } from "@park/shared";
-import { CHARACTER, bodySheet, outfitSheet } from "../assets";
+import { CHARACTER, bodySheet, idleFrame, outfitSheet } from "../assets";
 import { t, type MessageKey } from "../i18n";
 import { checkNickname, fetchRandomNickname } from "../net/api";
 import type { Profile } from "../profile";
@@ -29,9 +30,10 @@ export interface LobbyValues {
 /** 입력 중 닉네임 확인 요청을 보내기까지 기다리는 시간 */
 const CHECK_DEBOUNCE_MS = 400;
 /** 미리보기: 걷기 프레임 간격, 한 방향으로 걷는 프레임 수 */
-const PREVIEW_FRAME_MS = 1000 / CHARACTER.walkFrameRate;
+const PREVIEW_FRAME_MS = 1000 / CHARACTER.rows[0].frameRate;
 const PREVIEW_FRAMES_PER_FACING = 8;
-const PREVIEW_FACINGS = ["down", "left", "up", "right"] as const;
+/** 시계 방향으로 한 바퀴 돈다 */
+const PREVIEW_FACINGS = ["down", "down-left", "left", "up-left", "up", "up-right", "right", "down-right"] as const;
 const PREVIEW_SCALE = 3;
 
 /**
@@ -250,14 +252,14 @@ export class LobbyForm {
     return b;
   }
 
-  /** 몸 → 옷 순서로 같은 프레임을 겹쳐 그린다. 네 방향을 돌아가며 걷는다 */
+  /** 몸 → 옷 순서로 같은 프레임을 겹쳐 그린다. 여덟 방향을 돌아가며 걷는다 */
   private drawPreview(): void {
     const tick = this.previewTick++;
     const facing = PREVIEW_FACINGS[Math.floor(tick / PREVIEW_FRAMES_PER_FACING) % PREVIEW_FACINGS.length]!;
-    const frame = CHARACTER.directions.indexOf(facing) * CHARACTER.walkFrames + (tick % CHARACTER.walkFrames);
+    const frame = idleFrame(facing) + (tick % CHARACTER.framesPerRow);
     const ctx = this.preview;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    for (const key of [bodySheet(this.gender).key, outfitSheet(this.outfit).key]) {
+    for (const key of [bodySheet(bodyIdOf({ gender: this.gender, outfit: this.outfit })).key, outfitSheet(this.outfit).key]) {
       const f = this.textures.getFrame(key, frame);
       if (!f) continue;
       ctx.drawImage(f.source.image as CanvasImageSource, f.cutX, f.cutY, f.cutWidth, f.cutHeight, 0, 0, ctx.canvas.width, ctx.canvas.height);

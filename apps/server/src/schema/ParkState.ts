@@ -36,6 +36,9 @@ export const PlayerState = schema(
     orderItem: t.string().default(""),
     /** 0 = 만드는 중, 1 = 다음 차례 … */
     orderQueuePos: t.uint8().default(0),
+    /** 앉은 자리 (5-2). 서 있으면 seatId = "" */
+    seatId: t.string().default(""),
+    seatSlot: t.uint8().default(0),
   },
   "PlayerState",
 );

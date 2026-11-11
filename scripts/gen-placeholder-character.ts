@@ -7,10 +7,14 @@
  *   assets/sprites/body-<성별>.png    몸 (그림자, 다리, 신발, 머리, 얼굴)
  *   assets/sprites/outfit-<옷 id>.png 옷 (상의, 팔, 목도리, 바지·치마). 성별·옷 id 는 packages/shared/src/character.ts
  *
- * 모든 시트는 같은 배치: 프레임 32x32, 4열 x 8행
- *   행 0–3: 보통      down, left, right, up   (apps/client/src/assets.ts 의 CHARACTER.directions 와 같은 순서)
- *   행 4–7: 들고 걷기 down, left, right, up   (팔을 앞으로 모음. 간식 그림은 게임이 손 위치에 따로 그린다)
- *   열: 걷기 0–3. 0번 열은 서 있는 모습으로도 쓴다
+ * 모든 시트는 같은 배치: 프레임 32x32, 4열 x 28행 (128x896). apps/client/src/assets.ts 의 CHARACTER.rows 와 같은 순서
+ *   행 0–7:   보통       down, left, right, up, down-left, down-right, up-left, up-right
+ *   행 8–15:  들고 걷기  (같은 8방향. 팔을 앞으로 모음. 간식 그림은 게임이 손 위치에 따로 그린다)
+ *   행 16–19: 앉기       down, left, right, up (보는 방향)
+ *   행 20–23: 들고 앉기  down, left, right, up
+ *   행 24–27: 눕기       down, left, right, up (머리 방향 = 남, 서, 동, 북)
+ *   열 (걷기): 0 서기, 1 왼발 앞, 2 서기, 3 오른발 앞. 0번 열은 서 있는 모습으로도 쓴다
+ *   열 (앉기·눕기): 0 기본, 1 숨 들이쉼(상체 1px 위), 2 눈 감음, 3 숨 들이쉼. 천천히 반복
  *
  * 최종 그림으로 바꿀 때도 같은 배치·파일 이름을 지키면 코드 수정 없이 교체된다.
  * 옷 레이어는 몸 위에 그려지므로 머리 부분은 비워 둔다 (모자·후드는 나중에 위에 덮어도 됨).
@@ -18,18 +22,62 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENDERS, OUTFITS, type Gender } from "../packages/shared/src/character";
+import { GENDERS, OUTFITS, OUTFIT_BODIES, type Gender } from "../packages/shared/src/character";
 import { Canvas, encodePng, hex, type RGBA } from "./lib/png";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const FRAME = 32;
-const DIRECTIONS = ["down", "left", "right", "up"] as const;
+const DIRS_8 = ["down", "left", "right", "up", "down-left", "down-right", "up-left", "up-right"] as const;
+const DIRS_4 = ["down", "left", "right", "up"] as const;
 const WALK_FRAMES = 4;
-/** 자세 (행 묶음 순서). assets.ts 의 CHARACTER.poses 와 같은 순서 */
-const POSES = ["normal", "carry"] as const;
-type PoseName = (typeof POSES)[number];
+type PoseName = "normal" | "carry" | "sit" | "sitCarry" | "lie";
+type Dir = (typeof DIRS_8)[number];
+/** 행 묶음 (위에서부터). assets.ts 의 CHARACTER.rows 와 같은 순서 */
+const ROWS: { pose: PoseName; dirs: readonly Dir[] }[] = [
+  { pose: "normal", dirs: DIRS_8 },
+  { pose: "carry", dirs: DIRS_8 },
+  { pose: "sit", dirs: DIRS_4 },
+  { pose: "sitCarry", dirs: DIRS_4 },
+  { pose: "lie", dirs: DIRS_4 },
+];
+/** 앉으면 상체가 이만큼(px) 내려간다. assets.ts 의 CHARACTER.sitDrop 과 같은 값 */
+const SIT_DROP = 3;
+/**
+ * 실제로 그리는 모습. 오른쪽을 보는 방향은 왼쪽 모습을 뒤집어 쓴다.
+ * front: 정면, back: 뒷모습, side: 옆모습, frontSide: 비스듬히 앞(3/4), backSide: 비스듬히 뒤
+ */
+type View = "front" | "back" | "side" | "frontSide" | "backSide";
 
-type Dir = (typeof DIRECTIONS)[number];
+const VIEWS: Record<Dir, View> = {
+  down: "front",
+  up: "back",
+  left: "side",
+  right: "side",
+  "down-left": "frontSide",
+  "down-right": "frontSide",
+  "up-left": "backSide",
+  "up-right": "backSide",
+};
+
+/** 프레임 안 좌표 변환 (그리는 좌표 → 실제 셀 좌표) */
+type Transform = (x: number, y: number) => [number, number];
+const IDENTITY: Transform = (x, y) => [x, y];
+const FLIP_X: Transform = (x, y) => [FRAME - 1 - x, y];
+/**
+ * 눕기는 '머리가 왼쪽(서)'인 모습 하나만 그리고 돌리거나 뒤집는다.
+ * 남: 머리가 아래, 북: 머리가 위 (가운데 줄 y=24 가 셀 가운데 x=16 으로 감)
+ */
+const LIE_TRANSFORMS: Record<(typeof DIRS_4)[number], Transform> = {
+  left: IDENTITY,
+  right: FLIP_X,
+  down: (x, y) => [y - 8, FRAME - 1 - x],
+  up: (x, y) => [FRAME + 7 - y, x],
+};
+
+function transformOf(pose: PoseName, dir: Dir): Transform {
+  if (pose === "lie") return LIE_TRANSFORMS[dir as (typeof DIRS_4)[number]];
+  return dir.endsWith("right") ? FLIP_X : IDENTITY;
+}
 
 const BODY = {
   shadow: hex("#000000", 50),
@@ -69,16 +117,18 @@ const OUTFIT_STYLES: Record<string, OutfitStyle> = {
   "parka-mint": { coat: "#8fd1c0", coatDark: "#6bb3a1", scarf: "#f08aa0", pants: "#3d5a8a", hood: true },
 };
 
-/** 프레임 하나에 그리는 도구. flip 이면 좌우를 뒤집어 그린다 (right = left 를 뒤집은 것) */
+/** 프레임 하나에 그리는 도구. transform 으로 뒤집거나 돌려 그린다 (*-right = *-left 를 뒤집은 것) */
 class Frame {
   constructor(
     private readonly c: Canvas,
     private readonly ox: number,
     private readonly oy: number,
-    private readonly flip: boolean,
+    private readonly transform: Transform,
   ) {}
   px(x: number, y: number, color: RGBA): void {
-    this.c.set(this.ox + (this.flip ? FRAME - 1 - x : x), this.oy + y, color);
+    const [tx, ty] = this.transform(x, y);
+    if (tx < 0 || ty < 0 || tx >= FRAME || ty >= FRAME) return; // 옆 셀 침범 방지
+    this.c.set(this.ox + tx, this.oy + ty, color);
   }
   rect(x: number, y: number, w: number, h: number, color: RGBA): void {
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) this.px(i, j, color);
@@ -93,24 +143,71 @@ class Frame {
   }
 }
 
-/** 걷기 프레임별 자세. 몸과 옷이 같은 값을 써야 어긋나지 않는다 */
+/** 프레임별 자세. 몸과 옷이 같은 값을 써야 어긋나지 않는다 */
 interface Pose {
   /** 1: 왼발 앞, -1: 오른발 앞, 0: 서기 */
   stride: number;
-  /** 걸을 때 몸이 1px 올라감 */
+  /** 상체(머리·몸통·팔) 세로 이동. 걸을 때 1px 위, 앉으면 SIT_DROP 아래, 숨 들이쉬면 1px 위 */
   bob: number;
-  side: boolean;
+  view: View;
+  seated: boolean;
+  /** 눈 감음 (앉기·눕기 2번 열) */
+  blink: boolean;
 }
 
-function poseOf(dir: Dir, step: number): Pose {
-  // step: 0 서기, 1 왼발 앞, 2 서기, 3 오른발 앞
-  const stride = step === 1 ? 1 : step === 3 ? -1 : 0;
-  return { stride, bob: stride !== 0 ? -1 : 0, side: dir === "left" || dir === "right" };
+function poseOf(dir: Dir, step: number, pose: PoseName): Pose {
+  const seated = pose === "sit" || pose === "sitCarry";
+  const rest = seated || pose === "lie";
+  // 걷기 step: 0 서기, 1 왼발 앞, 2 서기, 3 오른발 앞 / 쉬기 step: 0 기본, 1·3 숨 들이쉼, 2 눈 감음
+  const stride = rest ? 0 : step === 1 ? 1 : step === 3 ? -1 : 0;
+  const up = step % 2 === 1 ? -1 : 0;
+  return { stride, bob: (seated ? SIT_DROP : 0) + up, view: VIEWS[dir], seated, blink: rest && step === 2 };
 }
 
-/** 다리 위치 (옷의 바지도 같은 자리에 덮어 그린다) */
-function legRects(p: Pose): { x: number; y: number; h: number; w: number }[] {
-  if (p.side) {
+function isCarry(pose: PoseName): boolean {
+  return pose === "carry" || pose === "sitCarry";
+}
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+/** 앉은 다리 (바지는 legs 에 덮고, 신발은 몸 레이어만) */
+function sitLegs(view: View): { legs: Rect[]; shoes: Rect[] } {
+  if (view === "back") return { legs: [], shoes: [] }; // 등에 가려 안 보임
+  if (view === "side")
+    // 허벅지가 앞(왼쪽)으로 나오고 정강이가 아래로 (몸통보다 왼쪽으로 삐져나온 부분만 보임)
+    return {
+      legs: [
+        { x: 6, y: 25, w: 8, h: 2 },
+        { x: 6, y: 27, w: 3, h: 2 },
+      ],
+      shoes: [{ x: 5, y: 29, w: 4, h: 2 }],
+    };
+  // 정면: 무릎이 앞으로 와서 다리가 짧아 보임
+  return {
+    legs: [
+      { x: 12, y: 26, w: 3, h: 3 },
+      { x: 17, y: 26, w: 3, h: 3 },
+    ],
+    shoes: [
+      { x: 12, y: 29, w: 3, h: 2 },
+      { x: 17, y: 29, w: 3, h: 2 },
+    ],
+  };
+}
+
+/** 걷는 다리 위치 (옷의 바지도 같은 자리에 덮어 그린다) */
+function legRects(p: Pose): Rect[] {
+  if (p.seated) return sitLegs(p.view).legs;
+  if (p.view === "frontSide" || p.view === "backSide") {
+    // 비스듬히: 두 다리가 조금 붙고, 걸을 때 내딛는 다리가 1px 들리며 바깥으로 벌어진다
+    const leftLift = p.stride === 1 ? 1 : 0;
+    const rightLift = p.stride === -1 ? 1 : 0;
+    return [
+      { x: 12 - leftLift, y: 24, w: 3, h: 4 - leftLift },
+      { x: 16 + rightLift, y: 24, w: 3, h: 4 - rightLift },
+    ];
+  }
+  if (p.view === "side") {
     // 옆모습: 앞다리/뒷다리가 앞뒤로 벌어짐 (왼쪽을 보는 기준으로 그리고 right 는 뒤집힘)
     const front = 14 - 2 * Math.abs(p.stride);
     const back = 15 + 2 * Math.abs(p.stride);
@@ -127,19 +224,26 @@ function legRects(p: Pose): { x: number; y: number; h: number; w: number }[] {
   ];
 }
 
-function drawBody(f: Frame, dir: Dir, step: number, gender: Gender): void {
-  const p = poseOf(dir, step);
+function drawBody(f: Frame, dir: Dir, step: number, gender: Gender, pose: PoseName): void {
+  if (pose === "lie") return drawLyingBody(f, step, gender);
+  const p = poseOf(dir, step, pose);
   const hair = BODY.hair[gender];
   f.ellipse(16, 30, 6, 1.6, BODY.shadow);
 
   // 다리 + 신발
-  const legs = legRects(p);
-  for (const l of legs) f.rect(l.x, l.y, l.w, l.h + 1, BODY.legs);
-  if (p.side) {
-    f.rect(legs[0]!.x, 28, 3, 2, BODY.shoe);
-    f.rect(legs[1]!.x - 1, 28, 4, 2, BODY.shoe);
+  if (p.seated) {
+    const sit = sitLegs(p.view);
+    for (const l of sit.legs) f.rect(l.x, l.y, l.w, l.h, BODY.legs);
+    for (const s of sit.shoes) f.rect(s.x, s.y, s.w, s.h, BODY.shoe);
   } else {
-    for (const l of legs) f.rect(l.x, l.y + l.h, 3, 2, BODY.shoe);
+    const legs = legRects(p);
+    for (const l of legs) f.rect(l.x, l.y, l.w, l.h + 1, BODY.legs);
+    if (p.view === "side") {
+      f.rect(legs[0]!.x, 28, 3, 2, BODY.shoe);
+      f.rect(legs[1]!.x - 1, 28, 4, 2, BODY.shoe);
+    } else {
+      for (const l of legs) f.rect(l.x, l.y + l.h, 3, 2, BODY.shoe);
+    }
   }
 
   // 목 (옷이 덮지 않는 틈이 비지 않게)
@@ -148,34 +252,55 @@ function drawBody(f: Frame, dir: Dir, step: number, gender: Gender): void {
   // 머리
   const hy = 8 + p.bob;
   const long = gender === "female";
-  if (long && dir !== "down") {
+  const v = p.view;
+  // 눈 감으면 1px 가는 선
+  const eyeY = hy + (p.blink ? 2 : 1);
+  const eyeH = p.blink ? 1 : 2;
+  if (long && v !== "front") {
     // 긴 머리 뒷부분 (얼굴보다 먼저)
-    if (dir === "up") f.rect(10, hy, 12, 7, hair);
+    if (v === "back") f.rect(10, hy, 12, 7, hair);
+    else if (v === "backSide") f.rect(11, hy, 12, 7, hair);
+    else if (v === "frontSide") f.ellipse(19, hy + 2, 4, 6.5, hair);
     else f.ellipse(19, hy + 2, 3.5, 6.5, hair);
   }
   f.ellipse(16, hy, 6.5, 6.5, BODY.skin);
 
-  if (dir === "down") {
+  if (v === "front") {
     f.ellipse(16, hy - 3, 6.5, 3.5, hair);
     f.rect(9, hy - 2, 2, long ? 9 : 4, hair);
     f.rect(21, hy - 2, 2, long ? 9 : 4, hair);
-    f.rect(13, hy + 1, 1, 2, BODY.eye);
-    f.rect(18, hy + 1, 1, 2, BODY.eye);
+    f.rect(13, eyeY, 1, eyeH, BODY.eye);
+    f.rect(18, eyeY, 1, eyeH, BODY.eye);
     f.px(12, hy + 3, BODY.cheek);
     f.px(19, hy + 3, BODY.cheek);
-  } else if (dir === "up") {
+  } else if (v === "back") {
     f.ellipse(16, hy, 6.5, 6.5, hair);
+  } else if (v === "frontSide") {
+    // 왼쪽 아래를 보는 3/4 모습: 얼굴이 왼쪽으로 치우치고 뒤통수 머리가 오른쪽에 보인다
+    f.ellipse(16, hy - 3, 6.5, 3.5, hair);
+    f.ellipse(20, hy, 2.5, 5, hair);
+    f.rect(9, hy - 2, 2, long ? 6 : 3, hair);
+    f.rect(12, eyeY, 1, eyeH, BODY.eye);
+    f.rect(16, eyeY, 1, eyeH, BODY.eye);
+    f.px(11, hy + 3, BODY.cheek);
+    f.px(17, hy + 3, BODY.cheek);
+  } else if (v === "backSide") {
+    // 왼쪽 위를 보는 3/4 뒷모습: 거의 머리카락, 왼쪽 가장자리에 볼·귀만 보인다
+    f.ellipse(17, hy, 6.5, 6.5, hair);
+    f.ellipse(16, hy - 2, 6.5, 4.5, hair);
+    f.px(10, hy + 2, BODY.cheek);
   } else {
     // 왼쪽을 보는 옆모습
     f.ellipse(16, hy - 3, 6.5, 3.5, hair);
     f.ellipse(19, hy, 3.5, 5.5, hair);
-    f.rect(11, hy + 1, 1, 2, BODY.eye);
+    f.rect(11, eyeY, 1, eyeH, BODY.eye);
     f.px(11, hy + 3, BODY.cheek);
   }
 }
 
 function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle, pose: PoseName): void {
-  const p = poseOf(dir, step);
+  if (pose === "lie") return drawLyingOutfit(f, style);
+  const p = poseOf(dir, step, pose);
   const coat = hex(style.coat);
   const coatDark = hex(style.coatDark);
   const pants = hex(style.pants);
@@ -189,23 +314,42 @@ function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle, pose: 
   f.rect(10, 15 + p.bob, 12, bottom - 15, coat);
   f.rect(10, bottom - 1 + p.bob, 12, 1, coatDark);
   f.rect(11, 14 + p.bob, 10, 1, coat);
-  if (style.trim && dir === "down") f.rect(15, 16 + p.bob, 2, bottom - 17, hex(style.trim));
-  if (!style.trim && dir === "down") f.rect(16, 16 + p.bob, 1, bottom - 17, coatDark); // 지퍼선
+  const v = p.view;
+  // 앞섶: 정면은 가운데, 비스듬히 앞은 보는 쪽(왼쪽)으로 치우침
+  const frontX = v === "front" ? 16 : v === "frontSide" ? 13 : null;
+  if (frontX !== null) {
+    if (style.trim) f.rect(frontX - 1, 16 + p.bob, 2, bottom - 17, hex(style.trim));
+    else f.rect(frontX, 16 + p.bob, 1, bottom - 17, coatDark); // 지퍼선
+  }
+  // 비스듬히 보면 몸통 오른쪽(먼 쪽)에 그늘
+  if (v === "frontSide" || v === "backSide") f.rect(20, 15 + p.bob, 2, bottom - 16, coatDark);
 
   // 후드 (뒤에서 보면 목 뒤에 늘어짐)
   if (style.hood) {
-    if (dir === "up") f.rect(12, 13 + p.bob, 8, 4, coatDark);
-    else if (p.side) f.rect(18, 13 + p.bob, 4, 3, coatDark);
+    if (v === "back") f.rect(12, 13 + p.bob, 8, 4, coatDark);
+    else if (v === "backSide") f.rect(13, 13 + p.bob, 8, 4, coatDark);
+    else if (v === "side") f.rect(18, 13 + p.bob, 4, 3, coatDark);
+    else if (v === "frontSide") f.rect(17, 13 + p.bob, 5, 2, coatDark);
     else f.rect(11, 13 + p.bob, 10, 2, coatDark);
   }
 
   // 팔
-  if (pose === "carry") {
-    // 들고 걷기: 팔을 몸 앞으로 모으고 흔들지 않는다
-    if (p.side) {
+  if (isCarry(pose)) {
+    // 들고 걷기·들고 앉기: 팔을 몸 앞으로 모으고 흔들지 않는다
+    if (v === "side") {
       f.rect(14, 16 + p.bob, 2, 3, coatDark);
       f.rect(10, 18 + p.bob, 5, 2, coatDark);
-    } else if (dir === "down") {
+    } else if (v === "frontSide") {
+      // 왼쪽 아래 앞으로 두 팔을 모음 (가까운 팔은 왼쪽, 먼 팔은 몸통 위로 건너옴)
+      f.rect(8, 16 + p.bob, 2, 3, coatDark);
+      f.rect(9, 19 + p.bob, 4, 2, coatDark);
+      f.rect(19, 17 + p.bob, 2, 2, coatDark);
+      f.rect(15, 19 + p.bob, 5, 2, coatDark);
+    } else if (v === "backSide") {
+      // 팔이 몸 앞(먼 쪽)에 있어 어깨·위팔만 보인다
+      f.rect(8, 16 + p.bob, 2, 3, coatDark);
+      f.rect(21, 16 + p.bob, 2, 3, coatDark);
+    } else if (v === "front") {
       f.rect(8, 16 + p.bob, 2, 3, coatDark);
       f.rect(22, 16 + p.bob, 2, 3, coatDark);
       f.rect(9, 19 + p.bob, 3, 2, coatDark);
@@ -214,8 +358,12 @@ function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle, pose: 
       f.rect(8, 16 + p.bob, 2, 4, coatDark);
       f.rect(22, 16 + p.bob, 2, 4, coatDark);
     }
-  } else if (p.side) {
+  } else if (v === "side") {
     f.rect(15 - p.stride, 16 + p.bob, 2, 6, coatDark);
+  } else if (v === "frontSide" || v === "backSide") {
+    // 가까운 팔(왼쪽)은 다 보이고, 먼 팔(오른쪽)은 몸통 가장자리에 조금 보인다. 다리와 반대로 흔든다
+    f.rect(8, 16 + p.bob + p.stride, 2, 6, coatDark);
+    f.rect(22, 16 + p.bob - p.stride, 1, 5, coatDark);
   } else {
     f.rect(8, 16 + p.bob + p.stride, 2, 6, coatDark);
     f.rect(22, 16 + p.bob - p.stride, 2, 6, coatDark);
@@ -225,19 +373,64 @@ function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle, pose: 
   if (style.scarf) {
     const scarf = hex(style.scarf);
     f.rect(11, 14 + p.bob, 10, 2, scarf);
-    if (dir === "up") f.rect(17, 16 + p.bob, 2, 3, scarf);
-    if (dir === "down") f.rect(17, 16 + p.bob, 2, 3, scarf);
+    if (v === "back" || v === "front") f.rect(17, 16 + p.bob, 2, 3, scarf);
+    if (v === "frontSide") f.rect(14, 16 + p.bob, 2, 3, scarf);
+    if (v === "backSide") f.rect(18, 16 + p.bob, 2, 3, scarf);
   }
 }
 
+/**
+ * 누운 모습 (머리가 왼쪽, 하늘을 보고 반듯이). 다른 방향은 LIE_TRANSFORMS 로 돌린다.
+ * 몸 가운데 줄 y=24, 머리 x 1–12, 몸통 x 12–21, 다리 x 21–31
+ */
+const LIE_LEGS: Rect[] = [
+  { x: 21, y: 20, w: 9, h: 3 },
+  { x: 21, y: 25, w: 9, h: 3 },
+];
+
+function drawLyingBody(f: Frame, step: number, gender: Gender): void {
+  const hair = BODY.hair[gender];
+  const blink = step === 2;
+  f.ellipse(17, 25, 14, 6.5, BODY.shadow);
+  for (const l of LIE_LEGS) f.rect(l.x, l.y, l.w, l.h, BODY.legs);
+  for (const l of LIE_LEGS) f.rect(30, l.y, 2, l.h, BODY.shoe);
+  f.rect(11, 22, 2, 4, BODY.skin); // 목
+  if (gender === "female") f.ellipse(4, 24, 4.5, 8, hair); // 바닥에 펼쳐진 긴 머리
+  f.ellipse(6.5, 24, 5.5, 5.5, BODY.skin);
+  f.ellipse(3.5, 24, 3.5, 5.5, hair);
+  // 얼굴이 위(화면 쪽)를 봄: 눈이 세로로 놓인다
+  const eyeW = blink ? 1 : 2;
+  f.rect(8, 21, eyeW, 1, BODY.eye);
+  f.rect(8, 26, eyeW, 1, BODY.eye);
+  f.px(10, 20, BODY.cheek);
+  f.px(10, 27, BODY.cheek);
+}
+
+function drawLyingOutfit(f: Frame, style: OutfitStyle): void {
+  const coat = hex(style.coat);
+  const coatDark = hex(style.coatDark);
+  for (const l of LIE_LEGS) f.rect(l.x, l.y, l.w, l.h, hex(style.pants));
+  if (style.skirt) f.rect(20, 18, 3, 12, hex(style.skirt));
+  const length = style.long ? 12 : 9;
+  f.rect(12, 18, length, 12, coat);
+  f.rect(12 + length - 1, 18, 1, 12, coatDark);
+  if (style.trim) f.rect(13, 23, length - 2, 2, hex(style.trim));
+  else f.rect(13, 24, length - 2, 1, coatDark); // 지퍼선
+  // 몸 옆에 내려놓은 두 팔
+  f.rect(13, 16, 7, 2, coatDark);
+  f.rect(13, 30, 7, 2, coatDark);
+  if (style.scarf) f.rect(11, 19, 2, 10, hex(style.scarf));
+}
+
 function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number, pose: PoseName) => void): void {
-  const canvas = new Canvas(WALK_FRAMES * FRAME, POSES.length * DIRECTIONS.length * FRAME);
-  POSES.forEach((pose, poseIndex) => {
-    DIRECTIONS.forEach((dir, dirIndex) => {
-      const row = poseIndex * DIRECTIONS.length + dirIndex;
-      for (let col = 0; col < WALK_FRAMES; col++) draw(new Frame(canvas, col * FRAME, row * FRAME, dir === "right"), dir, col, pose);
-    });
-  });
+  const rowCount = ROWS.reduce((n, r) => n + r.dirs.length, 0);
+  const canvas = new Canvas(WALK_FRAMES * FRAME, rowCount * FRAME);
+  let row = 0;
+  for (const { pose, dirs } of ROWS)
+    for (const dir of dirs) {
+      for (let col = 0; col < WALK_FRAMES; col++) draw(new Frame(canvas, col * FRAME, row * FRAME, transformOf(pose, dir)), dir, col, pose);
+      row++;
+    }
   const out = resolve(ROOT, `assets/sprites/${name}.png`);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, encodePng(canvas));
@@ -245,8 +438,9 @@ function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number, pose:
 }
 
 for (const gender of GENDERS) {
-  writeSheet(`body-${gender}`, (f, dir, step) => drawBody(f, dir, step, gender));
+  writeSheet(`body-${gender}`, (f, dir, step, pose) => drawBody(f, dir, step, gender, pose));
   for (const id of OUTFITS[gender]) {
+    if (OUTFIT_BODIES[id]) continue; // 전용 몸과 짝인 옷은 직접 만든 그림 (임시 그림으로 덮어쓰지 않음)
     const style = OUTFIT_STYLES[id];
     if (!style) throw new Error(`옷 "${id}" 의 그림 설정(OUTFIT_STYLES)이 없습니다`);
     writeSheet(`outfit-${id}`, (f, dir, step, pose) => drawOutfit(f, dir, step, style, pose));

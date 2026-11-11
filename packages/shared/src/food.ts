@@ -9,6 +9,10 @@ import type { Vec2 } from "./movement";
 /** 언어별 이름. 지금은 ko 만 있음 */
 export type LocalizedName = Record<string, string>;
 
+/** food: 한 입씩 먹기('냠', 고개 끄덕) / drink: 컵을 천천히 올려 마시기('호로록') */
+export const MENU_KINDS = ["food", "drink"] as const;
+export type MenuKind = (typeof MENU_KINDS)[number];
+
 export interface MenuItem {
   id: string;
   name: LocalizedName;
@@ -16,6 +20,10 @@ export interface MenuItem {
   cookSec: number;
   /** 다 먹는 데 걸리는 시간 (초). EAT_STAGES 단계로 나눠 그림이 줄어든다 */
   eatSec: number;
+  /** 먹는 모습 */
+  kind: MenuKind;
+  /** 뜨거운 것: 먹는 동안 김이 난다 (없으면 false) */
+  hot?: boolean;
 }
 
 export interface TruckDef {
@@ -41,6 +49,7 @@ function loadMenu(): Map<string, MenuItem> {
   for (const item of menuData.items as MenuItem[]) {
     if (map.has(item.id)) throw new Error(`menu.json: 메뉴 id "${item.id}" 이(가) 중복입니다`);
     if (!(item.cookSec > 0) || !(item.eatSec > 0)) throw new Error(`menu.json: "${item.id}" 의 cookSec·eatSec 은 0보다 커야 합니다`);
+    if (!MENU_KINDS.includes(item.kind)) throw new Error(`menu.json: "${item.id}" 의 kind 는 ${MENU_KINDS.join(" / ")} 중 하나여야 합니다`);
     map.set(item.id, item);
   }
   return map;

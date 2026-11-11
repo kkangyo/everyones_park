@@ -17,10 +17,18 @@ export interface MoveInput {
   y: Axis;
 }
 
-/** 그림 방향 (4방향 그림 + 8방향 이동) */
-export type Facing = "up" | "down" | "left" | "right";
+/** 그림 방향 (8방향 그림 + 8방향 이동). 대각선은 "세로-가로" 로 쓴다 */
+export type Facing = "up" | "down" | "left" | "right" | "down-left" | "down-right" | "up-left" | "up-right";
+
+/** 상하좌우만 (앉기·눕기 그림, 자리 방향) */
+export type StraightFacing = "up" | "down" | "left" | "right";
 
 export const NO_INPUT: MoveInput = { x: 0, y: 0 };
+
+/** 대각선은 세로 방향으로 (down-left → down). 4방향 그림만 있는 자세에 쓴다 */
+export function straightFacing(facing: Facing): StraightFacing {
+  return facing.startsWith("down") ? "down" : facing.startsWith("up") ? "up" : (facing as StraightFacing);
+}
 
 /** 한 번에 계산하는 최대 시간. 프레임이 크게 밀려도 얇은 벽을 뚫고 지나가지 않게 나눠서 계산한다 */
 const MAX_SUBSTEP_SEC = 1 / 30;
@@ -95,14 +103,11 @@ function moveAxis(pos: Vec2, axis: "x" | "y", delta: number, grid: CollisionGrid
   return boxHitsWall(grid, footBox(snapped)) || hitsOther(pos, snapped, others) ? pos : snapped;
 }
 
-/**
- * 입력으로 바라보는 방향을 정한다.
- * 대각선이면 직전 방향이 그 대각선에 포함될 때 유지해서, 대각선 이동 중 그림이 깜빡이지 않게 한다.
- */
+/** 입력으로 바라보는 방향을 정한다. 대각선 입력은 대각선 그림. 멈추면 직전 방향 유지 */
 export function facingFromInput(input: MoveInput, prev: Facing): Facing {
   if (!isMoving(input)) return prev;
-  const horizontal: Facing | null = input.x < 0 ? "left" : input.x > 0 ? "right" : null;
-  const vertical: Facing | null = input.y < 0 ? "up" : input.y > 0 ? "down" : null;
-  if (horizontal && vertical) return prev === horizontal || prev === vertical ? prev : vertical;
+  const horizontal = input.x < 0 ? "left" : input.x > 0 ? "right" : null;
+  const vertical = input.y < 0 ? "up" : input.y > 0 ? "down" : null;
+  if (horizontal && vertical) return `${vertical}-${horizontal}`;
   return (horizontal ?? vertical)!;
 }

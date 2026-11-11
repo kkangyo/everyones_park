@@ -2,10 +2,15 @@ import Phaser from "phaser";
 import { DEBUG } from "../debug";
 import { t } from "../i18n";
 import { checkHealth, type ServerStatus } from "../net/health";
-import { TOAST_EVENT, type OrderStatus, type ParkScene } from "./ParkScene";
+import { TOAST_EVENT, type ActionState, type OrderStatus, type ParkScene } from "./ParkScene";
 
 const HEALTH_INTERVAL_MS = 3000;
 const TOAST_MS = 3000;
+/** 화면 가장자리와 터치 버튼 사이 간격, 버튼끼리 간격 */
+const EDGE = 12;
+const BUTTON_GAP = 8;
+
+type ActionId = "order" | "seat" | "eat";
 
 const COLOR = { ok: "#2e9e47", bad: "#d64545", pending: "#5a6b7d" } as const;
 
@@ -24,6 +29,8 @@ export class UIScene extends Phaser.Scene {
   private toastText!: Phaser.GameObjects.Text;
   private toastTimer?: Phaser.Time.TimerEvent;
   private helpText!: Phaser.GameObjects.Text;
+  /** 터치 버튼 (오른쪽 아래). 할 수 있을 때만 보인다 */
+  private actionButtons!: Record<ActionId, Phaser.GameObjects.Text>;
   private debugText?: Phaser.GameObjects.Text;
   private health: ServerStatus | "checking" = "checking";
 
@@ -50,9 +57,25 @@ export class UIScene extends Phaser.Scene {
       .on("pointerdown", () => (this.scene.get("Park") as ParkScene).cancelOrder());
     // 잠깐 보여 주는 안내 (화면 아래 가운데)
     this.toastText = this.add.text(0, 0, "", { ...PANEL_STYLE, color: "#1b2433" }).setOrigin(0.5, 1).setVisible(false);
-    this.helpText = this.add.text(12, 0, t("controls.help"), { ...PANEL_STYLE, fontSize: "12px", color: "#5a6b7d" }).setOrigin(0, 1);
+    this.helpText = this.add.text(EDGE, 0, t("controls.help"), { ...PANEL_STYLE, fontSize: "12px", color: "#5a6b7d" }).setOrigin(0, 1);
+    // 키보드가 없는 기기에서는 단축키 안내 대신 버튼만
+    this.helpText.setVisible(this.sys.game.device.os.desktop);
 
-    const park = this.scene.get("Park");
+    // 터치 버튼: 손가락으로 누르기 쉬운 크기. 키보드 Space·E·Q 와 같은 동작
+    const park = this.scene.get("Park") as ParkScene;
+    const button = (onPress: () => void) =>
+      this.add
+        .text(0, 0, "", { fontSize: "16px", color: "#ffffff", backgroundColor: "#1b2433e6", padding: { x: 14, y: 10 } })
+        .setOrigin(1, 1)
+        .setVisible(false)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerdown", onPress);
+    this.actionButtons = {
+      order: button(() => park.orderHere()).setText(t("action.order")),
+      seat: button(() => park.toggleSeat()),
+      eat: button(() => park.eat()).setText(t("action.eat")),
+    };
+
     park.events.on(TOAST_EVENT, this.showToast, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => park.events.off(TOAST_EVENT, this.showToast, this));
   }
@@ -63,8 +86,10 @@ export class UIScene extends Phaser.Scene {
     this.updateStatus(park);
     this.updateOrder(park.orderStatus);
     const { width, height } = this.scale;
-    this.toastText.setPosition(width / 2, height - 48);
-    this.helpText.setPosition(12, height - 12);
+    this.updateActions(park.actions, width, height);
+    // 안내 문구는 터치 버튼 위에
+    this.toastText.setPosition(width / 2, height - 72);
+    this.helpText.setPosition(EDGE, height - EDGE);
     if (this.debugText) this.updateDebug(park);
   }
 
@@ -84,6 +109,24 @@ export class UIScene extends Phaser.Scene {
     const left = Math.round((this.scale.width - total) / 2);
     this.orderText.setX(left + this.orderText.width);
     this.cancelButton.setX(left + this.orderText.width + 4);
+  }
+
+  /** 할 수 있는 행동의 버튼만 오른쪽 아래부터 왼쪽으로 늘어놓는다 */
+  private updateActions(actions: ActionState, width: number, height: number): void {
+    const b = this.actionButtons;
+    b.order.setVisible(actions.order);
+    b.eat.setVisible(actions.eat);
+    b.seat.setVisible(actions.seat !== null);
+    if (actions.seat) {
+      const label = t(actions.seat === "sit" ? "action.sit" : "action.stand");
+      if (b.seat.text !== label) b.seat.setText(label);
+    }
+    let right = width - EDGE;
+    for (const id of ["seat", "eat", "order"] as const) {
+      if (!b[id].visible) continue;
+      b[id].setPosition(right, height - EDGE);
+      right -= b[id].width + BUTTON_GAP;
+    }
   }
 
   private showToast(text: string): void {
@@ -112,7 +155,7 @@ export class UIScene extends Phaser.Scene {
         `view   ${this.scale.width}x${this.scale.height}  zoom x${d.zoom}`,
         `pos    ${d.player.x}, ${d.player.y}`,
         `tile   ${d.tile.x}, ${d.tile.y}  ground=${d.groundTile} obstacle=${d.obstacleTile}`,
-        `facing ${d.facing}${d.moving ? " (moving)" : ""}`,
+        `facing ${d.facing}${d.moving ? " (moving)" : ""}${d.seated ? " (seated)" : ""}`,
         `path   남은 경유점 ${d.pathRemaining}`,
         `F1     충돌·경로 표시 ${d.collisionView ? "켜짐" : "꺼짐"}`,
         `net    ${d.net.status} room=${d.net.roomId} me=${d.net.sessionId}${d.net.leaveCode !== undefined ? ` (code ${d.net.leaveCode})` : ""}`,

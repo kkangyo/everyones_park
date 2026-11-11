@@ -1,6 +1,7 @@
 import { Room, type AuthContext, type Client } from "@colyseus/core";
 import {
   CLOSE_CODE,
+  HANDS_MAX,
   MSG,
   TICK_MS,
   TICK_SEC,
@@ -23,15 +24,25 @@ import { createLogger } from "../logger";
 import type { ParkMap } from "../map";
 import { ParkState, PlayerState } from "../schema/ParkState";
 import { HandsSystem } from "../systems/hands";
+import { SeatSystem } from "../systems/seats";
 import { TruckSystem } from "../systems/truck";
 
 const log = createLogger("room");
 
 /**
- * 사람별 입력 대기열 최대 길이. 틱마다 하나씩만 처리하므로 이보다 많이 쌓이면
- * (너무 빨리 보내거나 지연이 커짐) 오래된 것부터 버린다. 10개 = 500ms 분량
+ * 사람별 입력 대기열 최대 길이. 이보다 많이 쌓이면 (너무 빨리 보내거나 서버가 오래 멈춤) 오래된 것부터 버린다.
+ * 10개 = 500ms 분량
  */
 const MAX_QUEUED_INPUTS = 10;
+/**
+ * 입력 처리 몫(크레딧): 틱마다 사람별로 1씩 쌓이고, 입력 하나를 처리할 때 1씩 쓴다. 이만큼까지 모아 둘 수 있다.
+ * 네트워크가 잠깐 막혔다가 입력이 한꺼번에 도착하면 모아 둔 몫으로 따라잡는다.
+ * (틱당 1개만 처리하면 보내는 속도와 처리 속도가 같아서 한 번 쌓인 대기열이 영영 줄지 않는다)
+ * 길게 보면 처리하는 입력 수가 틱 수를 넘지 않으므로 빨리 보내서 빨라지는 것은 막힌다
+ */
+const MAX_INPUT_CREDIT = MAX_QUEUED_INPUTS;
+/** 밀린 입력을 따라잡을 때 한 틱에 한 사람의 입력을 최대 몇 개까지 처리하는지 */
+const MAX_INPUTS_PER_TICK = 3;
 /**
  * 타이머가 늦게 깨어났을 때 한 번에 몰아서 돌리는 최대 틱 수 (8틱 = 400ms).
  * 폰 서버는 부하에 따라 50ms 타이머가 수백 ms 씩 밀리는 일이 있다. 그보다 오래 멈추면 밀린 시간은 버린다
@@ -54,8 +65,11 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   private map!: ParkMap;
   private hands!: HandsSystem;
   private trucks!: TruckSystem;
+  private seats!: SeatSystem;
   /** sessionId → 아직 처리하지 않은 입력 */
   private readonly inputQueues = new Map<string, InputMessage[]>();
+  /** sessionId → 입력 처리 몫 (MAX_INPUT_CREDIT 참고) */
+  private readonly inputCredits = new Map<string, number>();
   private droppedInputs = 0;
   private tickAccMs = 0;
   private lastAdvanceAt = performance.now();
@@ -75,9 +89,17 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     this.trucks = new TruckSystem(this.state, this.map.trucks, this.hands, (sessionId, msg) => this.notify(sessionId, msg));
     this.onMessage(MSG.order, (client, message: unknown) => this.trucks.order(client.sessionId, message));
     this.onMessage(MSG.cancelOrder, (client) => this.trucks.cancel(client.sessionId));
-    this.onMessage(MSG.eat, (client) => {
+    this.onMessage(MSG.eat, (client, message: unknown) => {
       const player = this.state.players.get(client.sessionId);
-      if (player) this.hands.startEating(player, this.state.tick);
+      if (player) this.hands.startEating(player, this.state.tick, parseHand(message));
+    });
+
+    // 앉기·일어나기 (Phase 5)
+    this.seats = new SeatSystem(this.state, this.map.seats, this.map.grid, (sessionId, msg) => this.notify(sessionId, msg));
+    this.onMessage(MSG.sit, (client) => this.seats.sit(client.sessionId));
+    this.onMessage(MSG.stand, (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) this.seats.stand(player);
     });
     // 고정 틱 누산기: 타이머는 틱 간격의 절반마다 깨어나서, 실제로 흐른 시간만큼 틱을 돌린다.
     // (setInterval 만 믿으면 타이머가 밀릴 때 틱 수가 줄어 모두가 느려진다)
@@ -116,8 +138,11 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     player.facing = "down";
     player.moving = false;
     player.seq = 0;
+    player.seatId = "";
+    player.seatSlot = 0;
     this.state.players.set(client.sessionId, player);
     this.inputQueues.set(client.sessionId, []);
+    this.inputCredits.set(client.sessionId, 0);
     log.info(`join  ${this.roomId} ${client.sessionId} "${player.nickname}" (${this.clients.length}/${this.maxClients})`);
   }
 
@@ -128,6 +153,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     const player = this.state.players.get(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
+    this.inputCredits.delete(client.sessionId);
     log.info(`leave ${this.roomId} ${client.sessionId} "${player?.nickname ?? "?"}" (${this.clients.length}/${this.maxClients})`);
   }
 
@@ -168,13 +194,18 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     if (ticks > 0) this.broadcastPatch();
   }
 
-  /** 고정 틱 한 번: 사람마다 입력을 하나씩 처리 */
+  /** 고정 틱 한 번: 사람마다 입력을 처리 (보통 하나, 밀렸으면 모아 둔 몫만큼 최대 MAX_INPUTS_PER_TICK 개) */
   private tick(): void {
     this.state.tick++;
     for (const [sessionId, queue] of this.inputQueues) {
-      const input = queue.shift();
       const player = this.state.players.get(sessionId);
-      if (input && player) this.applyInput(sessionId, player, input);
+      if (!player) continue;
+      let credit = Math.min((this.inputCredits.get(sessionId) ?? 0) + 1, MAX_INPUT_CREDIT);
+      for (let n = 0; n < MAX_INPUTS_PER_TICK && credit >= 1 && queue.length > 0; n++) {
+        this.applyInput(sessionId, player, queue.shift()!);
+        credit--;
+      }
+      this.inputCredits.set(sessionId, credit);
     }
     this.trucks.tick(this.state.tick);
     this.hands.tick(this.state.tick);
@@ -186,6 +217,13 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   }
 
   private applyInput(sessionId: string, player: PlayerState, input: InputMessage): void {
+    if (this.seats.isSeated(player)) {
+      // 앉아 있을 때 이동 입력이 오면 일어나기만 하고 이번 입력의 이동은 버린다
+      // (클라이언트는 앉아 있는 동안 이동 입력 대신 stand 를 보내므로 보통은 오지 않음)
+      if (isMoving(input)) this.seats.stand(player);
+      player.seq = input.seq;
+      return;
+    }
     const prev = { x: player.x, y: player.y };
     const next = step(prev, input, TICK_SEC, this.map.grid, this.othersOf(sessionId));
     player.x = next.x;
@@ -218,6 +256,13 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     }
     return entrance; // 다 차 있으면 겹쳐서 입장 (서로 떨어져 나갈 수 있음)
   }
+}
+
+/** 먹기 메시지의 손 번호. 없거나 틀리면 undefined (= 아직 안 먹은 첫 번째) */
+function parseHand(message: unknown): number | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { hand } = message as Record<string, unknown>;
+  return typeof hand === "number" && Number.isInteger(hand) && hand >= 0 && hand < HANDS_MAX ? hand : undefined;
 }
 
 const AXES: readonly number[] = [-1, 0, 1];

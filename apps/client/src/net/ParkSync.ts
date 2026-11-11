@@ -7,6 +7,7 @@ import {
   TICK_MS,
   isValidAppearance,
   type Appearance,
+  type EatMessage,
   type Facing,
   type InputMessage,
   type NoticeMessage,
@@ -103,7 +104,14 @@ export class ParkSync {
       };
       this.remotes.set(sessionId, remote);
       const push = () => {
-        const snap = { t: room.state.tick * TICK_MS, x: player.x, y: player.y, facing: toFacing(player.facing), moving: player.moving };
+        const snap = {
+          t: room.state.tick * TICK_MS,
+          x: player.x,
+          y: player.y,
+          facing: toFacing(player.facing),
+          moving: player.moving,
+          seated: player.seatId !== "",
+        };
         const appearance = toAppearance(player);
         this.lag.run(() => {
           remote.latest = { x: snap.x, y: snap.y };
@@ -150,8 +158,17 @@ export class ParkSync {
     this.send(MSG.cancelOrder);
   }
 
-  sendEat(): void {
-    this.send(MSG.eat);
+  /** hand: 먹을 손 번호. 없으면 서버가 아직 안 먹은 첫 번째를 고른다 */
+  sendEat(hand?: number): void {
+    this.send(MSG.eat, hand === undefined ? undefined : ({ hand } satisfies EatMessage));
+  }
+
+  sendSit(): void {
+    this.send(MSG.sit);
+  }
+
+  sendStand(): void {
+    this.send(MSG.stand);
   }
 
   private send(type: string, payload?: unknown): void {
@@ -181,7 +198,7 @@ export class ParkSync {
     const t = serverNow - this.clock.interpolationDelay;
     for (const [sessionId, r] of this.remotes) {
       const s = r.buffer.sample(t);
-      if (s) r.view.setPose(s, s.facing, s.moving);
+      if (s) r.view.setPose(s, s.facing, s.moving, s.seated);
       // 손에 든 간식은 위치처럼 보간할 필요가 없어서 최신 상태를 그대로 그린다
       const hands = this.room.state.players?.get(sessionId)?.hands;
       if (hands) r.view.setHands(hands);

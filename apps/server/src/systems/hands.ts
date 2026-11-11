@@ -3,7 +3,7 @@ import { HeldFoodState, type ParkState, type PlayerState } from "../schema/ParkS
 
 /**
  * 양손과 먹기 (4-4, 4-6). 손에 든 간식은 PlayerState.hands 로 모두에게 보인다.
- * 먹기는 한 번에 하나씩: Q 를 누르면 아직 안 먹은 첫 번째 간식을 먹기 시작하고,
+ * 먹기는 한 번에 하나씩: 고른 손(없으면 아직 안 먹은 첫 번째)의 간식을 먹기 시작하고,
  * eatSec 동안 그림이 EAT_STAGES 단계로 줄어든 뒤 손에서 사라진다. 걷기·서기·앉기 모두 가능.
  */
 export class HandsSystem {
@@ -27,10 +27,10 @@ export class HandsSystem {
     return true;
   }
 
-  /** 먹기 시작. 이미 먹는 중이거나 들고 있는 게 없으면 아무것도 안 함 */
-  startEating(player: PlayerState, tick: number): void {
+  /** 먹기 시작. 이미 먹는 중이거나 그 손이 비었으면 아무것도 안 함. hand 가 없으면 아직 안 먹은 첫 번째 */
+  startEating(player: PlayerState, tick: number, hand?: number): void {
     if (player.hands.some((f) => f.eating)) return;
-    const food = player.hands.find((f) => !f.eating);
+    const food = hand === undefined ? player.hands.find((f) => !f.eating) : player.hands[hand];
     if (!food) return;
     food.eating = true;
     this.eatStartTick.set(food, tick);

@@ -7,7 +7,7 @@ import type { NicknameFormatError } from "./nickname";
 /** Colyseus 방(= 채널) 이름 */
 export const ROOM_NAME = "park";
 
-export const FACINGS: readonly Facing[] = ["up", "down", "left", "right"];
+export const FACINGS: readonly Facing[] = ["up", "down", "left", "right", "down-left", "down-right", "up-left", "up-right"];
 
 export const MSG = {
   /** 클라 → 서버: 한 틱 동안의 이동 입력 */
@@ -16,8 +16,12 @@ export const MSG = {
   order: "order",
   /** 클라 → 서버: 주문 취소 (내용 없음) */
   cancelOrder: "cancelOrder",
-  /** 클라 → 서버: 들고 있는 간식 먹기 시작 (내용 없음) */
+  /** 클라 → 서버: 들고 있는 간식 먹기 시작 (EatMessage, 없으면 아직 안 먹은 첫 번째) */
   eat: "eat",
+  /** 클라 → 서버: 가까운 자리에 앉기 (내용 없음). 서버가 빈 칸을 고른다 */
+  sit: "sit",
+  /** 클라 → 서버: 일어나기 (내용 없음) */
+  stand: "stand",
   /** 서버 → 클라: 나에게만 보내는 알림 (NoticeMessage) */
   notice: "notice",
 } as const;
@@ -27,14 +31,20 @@ export interface OrderMessage {
   item: string;
 }
 
+export interface EatMessage {
+  /** 먹을 간식의 손 번호 (PlayerView.hands 의 순서, 0 부터) */
+  hand: number;
+}
+
 /**
  * 서버 알림 코드. 화면 문구는 클라이언트 i18n (notice.*)
  * - HANDS_FULL: 손이 꽉 차서 주문 불가 (머리 위 말풍선)
  * - NOT_AT_TRUCK / ALREADY_ORDERED / INVALID_ORDER: 주문 거절
  * - ORDER_CANCELLED_FAR: 트럭에서 멀어져서 취소됨
  * - ORDER_READY: 간식을 받음
+ * - SEAT_FULL: 가까운 자리가 다 차서 앉지 못함 (머리 위 말풍선)
  */
-export type NoticeCode = "HANDS_FULL" | "NOT_AT_TRUCK" | "ALREADY_ORDERED" | "INVALID_ORDER" | "ORDER_CANCELLED_FAR" | "ORDER_READY";
+export type NoticeCode = "HANDS_FULL" | "NOT_AT_TRUCK" | "ALREADY_ORDERED" | "INVALID_ORDER" | "ORDER_CANCELLED_FAR" | "ORDER_READY" | "SEAT_FULL";
 
 export interface NoticeMessage {
   code: NoticeCode;
@@ -78,6 +88,10 @@ export interface PlayerView {
   orderItem: string;
   /** 대기 순서. 0 = 지금 만드는 중, 1 = 다음 차례 … */
   orderQueuePos: number;
+  /** 앉은 자리 id (맵 seats 오브젝트 name). 서 있으면 "" */
+  seatId: string;
+  /** 앉은 칸 번호 (seatId 가 있을 때만) */
+  seatSlot: number;
 }
 
 export interface HeldFoodView {

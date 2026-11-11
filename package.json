@@ -20,7 +20,9 @@
     "typecheck": "pnpm -r typecheck",
     "gen:map": "tsx scripts/gen-placeholder-map.ts",
     "gen:character": "tsx scripts/gen-placeholder-character.ts",
-    "gen:food": "tsx scripts/gen-placeholder-food.ts"
+    "gen:food": "tsx scripts/gen-placeholder-food.ts",
+    "gen:guide": "tsx scripts/gen-character-guide.ts",
+    "check:character": "tsx scripts/check-character-sheet.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

@@ -77,7 +77,7 @@ Vite는 포트가 이미 쓰이고 있으면 다른 포트로 바꾸지 않고 �
 
 ## 메뉴·트럭 고치기
 
-- 메뉴: [packages/shared/data/menu.json](packages/shared/data/menu.json) (이름, 조리 시간 `cookSec`, 먹는 시간 `eatSec`)
+- 메뉴: [packages/shared/data/menu.json](packages/shared/data/menu.json) (이름, 조리 시간 `cookSec`, 먹는 시간 `eatSec`, 먹는 모습 `kind`: food 냠냠 / drink 호로록, 뜨거우면 `hot`: 김이 남)
 - 트럭: [packages/shared/data/trucks.json](packages/shared/data/trucks.json) (이름, 파는 메뉴). 위치는 맵 `trucks` 레이어
 - 새 메뉴·트럭을 넣으면 그림도 있어야 한다: `pnpm gen:food` 의 그림 설정에 추가하거나 같은 이름의 PNG 를 넣는다
 - 서버·클라이언트 모두 JSON 을 시작할 때 검사한다 (없는 메뉴 id 등이면 바로 오류)

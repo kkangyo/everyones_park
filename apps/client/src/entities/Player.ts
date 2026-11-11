@@ -10,6 +10,8 @@ export class Player {
   readonly view: CharacterView;
   facing: Facing = "down";
   moving = false;
+  /** 자리에 앉아 있음 (서버 상태를 따름). 앉아 있는 동안은 움직이지 않는다 */
+  seated = false;
   /** 직전 틱 / 현재 틱 위치 (시뮬레이션 기준) */
   private prev: Vec2;
   private cur: Vec2;
@@ -23,6 +25,15 @@ export class Player {
   /** 시뮬레이션 위치 (현재 틱). 화면에 보이는 위치는 이보다 최대 한 틱 늦다 */
   get position(): Vec2 {
     return this.cur;
+  }
+
+  /** 서버가 알려 준 앉기 상태. 앉으면 자리 방향을 본다 */
+  setSeated(seatFacing: Facing | null): void {
+    this.seated = seatFacing !== null;
+    if (seatFacing) {
+      this.facing = seatFacing;
+      this.moving = false;
+    }
   }
 
   /** 한 틱 진행. others: 다른 캐릭터 위치 (발밑 충돌) */
@@ -53,6 +64,6 @@ export class Player {
   render(alpha: number): void {
     const x = this.prev.x + (this.cur.x - this.prev.x) * alpha;
     const y = this.prev.y + (this.cur.y - this.prev.y) * alpha;
-    this.view.setPose({ x, y }, this.facing, this.moving);
+    this.view.setPose({ x, y }, this.facing, this.moving, this.seated);
   }
 }

@@ -2,8 +2,8 @@ import Phaser from "phaser";
 import type { TruckPlacement, TruckView as TruckStateView } from "@park/shared";
 import { DEPTH, GENERATED, truckSheet } from "../assets";
 import { localized, t } from "../i18n";
+import { smoothText } from "../ui/text";
 
-const TEXT_RESOLUTION = 4;
 /** 트럭 그림 위쪽 지붕 높이 (그림 96x80 중 맵 칸 위로 삐져나온 부분) */
 const ROOF_PX = 16;
 
@@ -34,20 +34,16 @@ export class TruckView {
       .setInteractive({ useHandCursor: true });
 
     const label = { fontSize: "9px", color: "#ffffff", stroke: "#1b2433", strokeThickness: 3 };
-    scene.add
-      .text(cx, top - 2, localized(def.name), label)
+    smoothText(scene.add.text(cx, top - 2, localized(def.name), label))
       .setOrigin(0.5, 1)
-      .setResolution(TEXT_RESOLUTION)
       .setDepth(DEPTH.nameplate + box.bottom);
-    this.status = scene.add
-      .text(cx, top - 13, "", { ...label, color: "#ffd9a8" })
+    this.status = smoothText(scene.add.text(cx, top - 13, "", { ...label, color: "#ffd9a8" }))
       .setOrigin(0.5, 1)
-      .setResolution(TEXT_RESOLUTION)
       .setDepth(DEPTH.nameplate + box.bottom);
-    this.hint = scene.add
-      .text(cx, box.bottom + 4, t("truck.hint"), { fontSize: "8px", color: "#1b2433", backgroundColor: "#ffd9a8", padding: { x: 3, y: 1 } })
+    this.hint = smoothText(
+      scene.add.text(cx, box.bottom + 4, t("truck.hint"), { fontSize: "8px", color: "#1b2433", backgroundColor: "#ffd9a8", padding: { x: 3, y: 1 } }),
+    )
       .setOrigin(0.5, 0)
-      .setResolution(TEXT_RESOLUTION)
       .setDepth(DEPTH.bubble)
       .setVisible(false);
 

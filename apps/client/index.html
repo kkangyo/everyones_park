@@ -2,7 +2,8 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 확대 금지: 두 번 탭·두 손가락 확대로 화면이 커지면 터치 좌표가 게임과 어긋난다 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>모두의 쉼터</title>
     <!-- 아이콘이 생기기 전까지: 브라우저가 /favicon.ico 를 찾다가 404 를 내지 않게 -->
     <link rel="icon" href="data:," />
@@ -17,6 +18,8 @@
       #game {
         width: 100%;
         height: 100%;
+        /* 게임 화면에서는 브라우저의 스크롤·확대 제스처 대신 게임이 터치를 받는다 */
+        touch-action: none;
       }
     </style>
   </head>

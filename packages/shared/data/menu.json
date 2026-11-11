@@ -1,0 +1,21 @@
+{
+  "items": [
+    { "id": "tteokbokki", "name": { "ko": "떡볶이" }, "cookSec": 10, "eatSec": 50, "kind": "food" },
+    { "id": "sundae", "name": { "ko": "순대" }, "cookSec": 9, "eatSec": 45, "kind": "food" },
+    { "id": "twigim", "name": { "ko": "튀김" }, "cookSec": 12, "eatSec": 45, "kind": "food" },
+    { "id": "eomuk", "name": { "ko": "어묵 꼬치" }, "cookSec": 8, "eatSec": 30, "kind": "food" },
+    { "id": "eomuk-soup", "name": { "ko": "어묵 국물" }, "cookSec": 8, "eatSec": 30, "kind": "drink", "hot": true },
+    { "id": "bungeoppang-red", "name": { "ko": "팥붕어빵" }, "cookSec": 10, "eatSec": 35, "kind": "food" },
+    { "id": "bungeoppang-cream", "name": { "ko": "슈크림붕어빵" }, "cookSec": 10, "eatSec": 35, "kind": "food" },
+    { "id": "ttangkongppang", "name": { "ko": "땅콩빵" }, "cookSec": 10, "eatSec": 40, "kind": "food" },
+    { "id": "hotteok-honey", "name": { "ko": "꿀호떡" }, "cookSec": 11, "eatSec": 40, "kind": "food" },
+    { "id": "hotteok-seed", "name": { "ko": "씨앗호떡" }, "cookSec": 11, "eatSec": 40, "kind": "food" },
+    { "id": "goguma", "name": { "ko": "군고구마" }, "cookSec": 12, "eatSec": 60, "kind": "food" },
+    { "id": "gunbam", "name": { "ko": "군밤" }, "cookSec": 10, "eatSec": 50, "kind": "food" },
+    { "id": "gyeranppang", "name": { "ko": "계란빵" }, "cookSec": 10, "eatSec": 40, "kind": "food" },
+    { "id": "yuja-tea", "name": { "ko": "유자차" }, "cookSec": 8, "eatSec": 45, "kind": "drink", "hot": true },
+    { "id": "hot-choco", "name": { "ko": "핫초코" }, "cookSec": 8, "eatSec": 45, "kind": "drink", "hot": true },
+    { "id": "sikhye", "name": { "ko": "식혜" }, "cookSec": 8, "eatSec": 40, "kind": "drink", "hot": false },
+    { "id": "dakkochi", "name": { "ko": "닭꼬치" }, "cookSec": 12, "eatSec": 45, "kind": "food" }
+  ]
+}

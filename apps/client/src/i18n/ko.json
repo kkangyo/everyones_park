@@ -33,6 +33,7 @@
       "coat-navy": "남색 코트",
       "hoodie-green": "초록 후드",
       "parka-gray": "회색 파카",
+      "black-blazer-handsome": "검은 블레이저",
       "coat-pink": "분홍 코트",
       "padding-cream": "크림 롱패딩",
       "coat-red": "빨간 코트",
@@ -79,9 +80,26 @@
     "ALREADY_ORDERED": "이미 {item} 주문을 기다리고 있어요",
     "INVALID_ORDER": "주문할 수 없는 메뉴예요",
     "ORDER_CANCELLED_FAR": "트럭에서 멀어져서 {item} 주문이 취소됐어요",
-    "ORDER_READY": "{item} 나왔어요! (Q: 먹기)"
+    "ORDER_READY": "{item} 나왔어요! (Q: 먹기)",
+    "SEAT_FULL": "자리가 다 찼어요"
+  },
+  "eat": {
+    "bite": "냠",
+    "sip": "호록"
+  },
+  "hands": {
+    "title": "무엇을 먹을까요?",
+    "titleBusy": "손에 든 간식",
+    "eating": "먹는 중",
+    "empty": "손에 든 간식이 없어요"
+  },
+  "action": {
+    "order": "주문",
+    "sit": "앉기",
+    "stand": "일어나기",
+    "eat": "먹기"
   },
   "controls": {
-    "help": "WASD·클릭 이동 · Space 주문 · Q 먹기"
+    "help": "WASD·클릭 이동 · Space 주문 · Q 먹기 (내 캐릭터 클릭: 고르기) · E 앉기/일어나기"
   }
 }

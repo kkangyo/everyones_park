@@ -7,3 +7,4 @@ export * from "./paths";
 export * from "./character";
 export * from "./nickname";
 export * from "./food";
+export * from "./seats";

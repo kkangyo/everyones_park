@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { collisionGridFromTiled, truckPlacementsFromTiled, type CollisionGrid, type TruckPlacement, type Vec2 } from "@park/shared";
+import { collisionGridFromTiled, seatsFromTiled, truckPlacementsFromTiled, type CollisionGrid, type Seat, type TruckPlacement, type Vec2 } from "@park/shared";
 import { config } from "./config";
 
 // 클라이언트(apps/client/src/assets.ts MAP)와 같은 파일·레이어 이름
@@ -9,6 +9,7 @@ const OBSTACLE_LAYER = "obstacles";
 const SPAWN_LAYER = "spawns";
 const ENTRANCE_SPAWN = "entrance";
 const TRUCK_LAYER = "trucks";
+const SEAT_LAYER = "seats";
 
 export interface ParkMap {
   grid: CollisionGrid;
@@ -16,6 +17,7 @@ export interface ParkMap {
   heightPx: number;
   entrance: Vec2;
   trucks: TruckPlacement[];
+  seats: Seat[];
 }
 
 interface TiledMap {
@@ -23,7 +25,12 @@ interface TiledMap {
   height: number;
   tilewidth: number;
   tileheight: number;
-  layers: { name: string; type: string; data?: number[]; objects?: { name: string; x: number; y: number; width?: number; height?: number }[] }[];
+  layers: {
+    name: string;
+    type: string;
+    data?: number[];
+    objects?: { name: string; x: number; y: number; width?: number; height?: number; properties?: { name: string; value: unknown }[] }[];
+  }[];
 }
 
 /** 서버 시작 시 한 번 읽는다. 클라이언트와 같은 JSON, 같은 함수로 충돌 격자를 만든다 */
@@ -38,5 +45,6 @@ export function loadParkMap(): ParkMap {
     heightPx: raw.height * raw.tileheight,
     entrance: { x: spawn.x, y: spawn.y },
     trucks: truckPlacementsFromTiled(raw, TRUCK_LAYER),
+    seats: seatsFromTiled(raw, SEAT_LAYER),
   };
 }
