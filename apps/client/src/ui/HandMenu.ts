@@ -6,7 +6,7 @@ import { smoothText } from "./text";
 
 /** 한 줄 높이. 2배 확대에서 40px 로 손가락으로 누르기 쉽게 */
 const ROW_H = 20;
-const WIDTH = 112;
+const WIDTH = 144;
 const PAD = 5;
 const HEADER_H = 14;
 const TAIL = 6;
@@ -53,7 +53,8 @@ export class HandMenu {
     hands.forEach((food, i) => {
       const y = HEADER_H + i * ROW_H;
       const icon = scene.add.image(PAD + 6, y + ROW_H / 2, foodSheet(food.item).key, food.stage);
-      const name = localized(MENU.get(food.item)?.name ?? { ko: food.item });
+      const side = t(food.hand === "left" ? "hands.left" : "hands.right");
+      const name = `${side} · ${localized(MENU.get(food.item)?.name ?? { ko: food.item })}`;
       const label = food.eating ? `${name} · ${t("hands.eating")}` : busy ? name : `${i + 1}  ${name}`;
       const row = text(PAD + 15, y + (ROW_H - 10) / 2, label, busy && !food.eating ? "#8a99ab" : "#ffffff");
       if (this.choosable[i]) {
@@ -70,7 +71,7 @@ export class HandMenu {
   }
 
   static signatureOf(hands: readonly HeldFoodView[]): string {
-    return hands.map((h) => `${h.item}:${h.eating ? 1 : 0}`).join(",");
+    return hands.map((h) => `${h.hand}:${h.item}:${h.eating ? 1 : 0}`).join(",");
   }
 
   /** 캐릭터 머리 위에, 화면 밖으로 나가지 않게. 매 프레임 불러도 된다 */

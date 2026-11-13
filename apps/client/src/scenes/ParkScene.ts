@@ -1,7 +1,10 @@
 import Phaser from "phaser";
 import {
+  EMOTES,
+  EMOTE_COOLDOWN_SEC,
   MENU,
   NO_INPUT,
+  PET_RANGE_PX,
   SIT_RANGE_PX,
   TICK_MS,
   TILE_SIZE,
@@ -10,6 +13,9 @@ import {
   footBox,
   isBlockedTile,
   isMoving,
+  nearestSlot,
+  seatAt,
+  seatStandPoint,
   seatsInRange,
   tileCenter,
   tileOf,
@@ -45,7 +51,12 @@ export interface ActionState {
   /** 앉기 / 일어나기 / 할 수 없음 */
   seat: "sit" | "stand" | null;
   eat: boolean;
+  /** 쓰다듬을 수 있는 고양이가 가까이 있음 */
+  pet: boolean;
 }
+
+/** 숫자키 1–9. 트럭 메뉴·간식 고르기가 열려 있으면 그 메뉴를, 아니면 이모티콘(1–8)을 고른다 */
+const NUMBER_KEYS = ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE"] as const;
 
 /** 공원 씬 → UI 씬 이벤트: 잠깐 보여 줄 안내 문구 */
 export const TOAST_EVENT = "toast";
@@ -109,8 +120,12 @@ export class ParkScene extends Phaser.Scene {
   private standRequested = false;
   /** 내 손에 든 간식 말풍선 (무엇을 먹을지 고르기) */
   private handMenu?: HandMenu;
-  /** 앉아 있을 때 땅을 클릭하면, 일어난 뒤 그곳으로 걸어간다 */
-  private walkAfterStand?: Vec2;
+  /** 앉아 있을 때 땅·다른 자리를 클릭하면, 일어난 뒤에 할 일 (그곳으로 걸어가기) */
+  private afterStand?: () => void;
+  /** 클릭해서 걸어가는 중인 자리. 도착하면 앉는다 (5-3) */
+  private walkingToSeat?: Seat;
+  /** 고양이를 눌러서 걸어가는 중. 도착했을 때 가까우면 쓰다듬는다 (5A-5) */
+  private walkingToAnimal?: string;
 
   constructor() {
     super("Park");
@@ -163,13 +178,19 @@ export class ParkScene extends Phaser.Scene {
     this.sync = new ParkSync(this, room, LAG_MS);
     this.sync.onOwnState = (state, first) => this.onOwnServerState(state, first);
     this.sync.onNotice = (notice) => this.onNotice(notice);
+    this.sync.onOwnEmote = (id, remainingMs) => this.player.view.showEmote(id, remainingMs);
+    this.sync.onAnimalTap = (id) => this.petAnimal(id);
     this.sync.start();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sync.disconnect());
 
     // 간식 트럭 (Phase 4)
     this.trucks = new TruckController(this, park.trucks, this.sync, {
       position: () => this.player.position,
-      walkTo: (goal) => this.walkTo(goal),
+      walkTo: (goal) => {
+        this.walkingToSeat = undefined;
+        this.walkingToAnimal = undefined;
+        return this.walkTo(goal);
+      },
       isWalking: () => this.follower.active,
       say: (text) => this.player.view.say(text),
     });
@@ -179,9 +200,12 @@ export class ParkScene extends Phaser.Scene {
     this.player.view.enableTap(() => this.openHandMenu());
     const kb = this.input.keyboard!;
     kb.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on("down", () => this.closeHandMenu());
-    (["ONE", "TWO"] as const).forEach((name, i) => kb.addKey(Phaser.Input.Keyboard.KeyCodes[name]).on("down", () => this.handMenu?.chooseIndex(i)));
+    // 숫자키 하나에 처리를 하나만 건다. 메뉴에서 고르면 메뉴가 닫히므로, 처리마다 따로 걸면 같은 키로 이모티콘까지 나간다
+    NUMBER_KEYS.forEach((name, i) => kb.addKey(Phaser.Input.Keyboard.KeyCodes[name]).on("down", () => this.onNumberKey(i)));
     // E: 가까운 자리에 앉기 / 일어나기 (5-2). 빈 칸 확인은 서버가 한다
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E).on("down", () => this.toggleSeat());
+    // F: 가까운 고양이 쓰다듬기 (5A-5)
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F).on("down", () => this.petNearby());
   }
 
   get netInfo(): NetInfo {
@@ -200,11 +224,12 @@ export class ParkScene extends Phaser.Scene {
     this.player.setSeated(me?.seatId ? (me.facing as Facing) : null);
     if (!this.player.seated) {
       this.standRequested = false;
-      if (this.walkAfterStand) {
-        this.walkTo(this.walkAfterStand);
-        this.walkAfterStand = undefined;
-      }
+      const next = this.afterStand;
+      this.afterStand = undefined;
+      next?.();
     }
+    this.arriveAtSeat();
+    this.arriveAtAnimal();
 
     // 화면: 내 캐릭터는 직전 틱~현재 틱 사이 보간, 다른 사람은 서버 상태를 약간 과거로 보간
     this.player.render(this.tickAccMs / TICK_MS);
@@ -231,6 +256,8 @@ export class ParkScene extends Phaser.Scene {
     if (isMoving(keys) && this.follower.active) {
       this.follower.cancel();
       this.trucks.cancelPending();
+      this.walkingToSeat = undefined;
+      this.walkingToAnimal = undefined;
     }
     const input = isMoving(keys) ? keys : this.follower.next(this.player.position, TICK_MS / 1000);
 
@@ -305,6 +332,7 @@ export class ParkScene extends Phaser.Scene {
       order: this.trucks.canOrderHere(),
       seat: this.player.seated ? "stand" : seatsInRange(this.player.position, this.seats).length > 0 ? "sit" : null,
       eat: hands.length > 0 && !hands.some((h) => h.eating),
+      pet: this.sync.animalNear(this.player.position, PET_RANGE_PX) !== undefined,
     };
   }
 
@@ -350,6 +378,29 @@ export class ParkScene extends Phaser.Scene {
     else this.handMenu.place(this.player.view.position, this.cameras.main);
   }
 
+  private onNumberKey(index: number): void {
+    if (this.trucks.menuOpen) this.trucks.chooseMenuIndex(index);
+    else if (this.handMenu) this.handMenu.chooseIndex(index);
+    else if (EMOTES[index]) this.emote(EMOTES[index].id);
+  }
+
+  /** 이모티콘 보내기 (숫자키·화면의 이모티콘 버튼). 쿨다운 중이면 무시 (서버도 다시 확인한다) */
+  emote(id: string): void {
+    if (this.emoteCooldownSec > 0) return;
+    this.sync.sendEmote(id);
+  }
+
+  /**
+   * 다음 이모티콘까지 남은 시간 (초, 0 = 보낼 수 있음). 서버가 받아 준 내 마지막 이모티콘 틱 기준.
+   * 받은 서버 틱은 실제 서버보다 조금 늦으므로 서버 판정보다 짧게 나오는 일은 없다
+   */
+  get emoteCooldownSec(): number {
+    const me = this.sync.me;
+    if (!me?.emoteTick) return 0;
+    const elapsedSec = ((this.sync.serverTick - me.emoteTick) * TICK_MS) / 1000;
+    return Math.max(0, EMOTE_COOLDOWN_SEC - elapsedSec);
+  }
+
   /** 서버 알림: 손이 꽉 찼으면 머리 위 말풍선, 나머지는 화면 안내 */
   private onNotice(notice: NoticeMessage): void {
     const item = notice.item ? localized(MENU.get(notice.item)?.name ?? { ko: notice.item }) : "";
@@ -358,17 +409,81 @@ export class ParkScene extends Phaser.Scene {
     else this.events.emit(TOAST_EVENT, text);
   }
 
-  /** 땅을 클릭하면 길을 찾아 그곳으로 걸어간다. 트럭·메뉴 등 다른 것을 누른 경우는 그쪽에서 처리 */
+  /**
+   * 땅을 클릭하면 길을 찾아 그곳으로 걸어간다. 자리(벤치)를 클릭하면 걸어가서 앉는다.
+   * 트럭·메뉴 등 다른 것을 누른 경우는 그쪽에서 처리
+   */
   private onPointerDown(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
     if (pointer.button !== 0 || over.length > 0) return; // 왼쪽 버튼(터치 포함)만
     this.trucks.cancelPending();
     this.closeHandMenu();
+    this.walkingToSeat = undefined;
+    this.walkingToAnimal = undefined;
+    const point = { x: pointer.worldX, y: pointer.worldY };
+    const seat = seatAt(point, this.seats);
     if (this.player.seated) {
-      this.walkAfterStand = { x: pointer.worldX, y: pointer.worldY };
+      if (seat?.id === this.sync.me?.seatId) return; // 앉아 있는 자리를 누름
+      this.afterStand = () => (seat ? this.goSit(seat, point) : this.walkTo(point));
       this.requestStand();
       return;
     }
-    this.walkTo({ x: pointer.worldX, y: pointer.worldY });
+    if (seat) this.goSit(seat, point);
+    else this.walkTo(point);
+  }
+
+  /** 자리를 클릭함: 가까우면 바로 앉고, 멀면 누른 칸 앞까지 걸어가서 앉는다 (5-3) */
+  private goSit(seat: Seat, clicked: Vec2): void {
+    if (seatsInRange(this.player.position, this.seats).includes(seat)) {
+      this.follower.cancel();
+      this.sync.sendSit(seat.id);
+      return;
+    }
+    const front = seatStandPoint(seat, nearestSlot(seat, clicked), this.grid);
+    if (this.walkTo(front)) this.walkingToSeat = seat;
+  }
+
+  /** F·'쓰다듬기' 버튼: 가까운 고양이를 쓰다듬는다 */
+  petNearby(): void {
+    const near = this.sync.animalNear(this.player.position, PET_RANGE_PX);
+    if (near) this.sync.sendPet(near.id);
+  }
+
+  /**
+   * 고양이를 누름: 가까우면 쓰다듬고, 멀면 걸어간다 (앉아 있으면 걸어가지 않음).
+   * 낯선 고양이는 걸어오는 사람을 피하므로, 도착했을 때 가까이 있을 때만 쓰다듬는다
+   */
+  private petAnimal(id: string): void {
+    const pos = this.sync.animalPosition(id);
+    if (!pos) return;
+    this.closeHandMenu();
+    this.trucks.cancelPending();
+    this.walkingToSeat = undefined;
+    const me = this.player.position;
+    if (Math.hypot(pos.x - me.x, pos.y - me.y) <= PET_RANGE_PX) {
+      this.follower.cancel();
+      this.walkingToAnimal = undefined;
+      this.sync.sendPet(id);
+      return;
+    }
+    if (this.player.seated) return;
+    this.walkingToAnimal = this.walkTo(pos) ? id : undefined;
+  }
+
+  private arriveAtAnimal(): void {
+    const id = this.walkingToAnimal;
+    if (!id || this.follower.active) return;
+    this.walkingToAnimal = undefined;
+    const pos = this.sync.animalPosition(id);
+    const me = this.player.position;
+    if (pos && Math.hypot(pos.x - me.x, pos.y - me.y) <= PET_RANGE_PX) this.sync.sendPet(id);
+  }
+
+  /** 클릭한 자리에 도착했으면 앉는다. 막혀서 멈췄는데 자리가 멀면 그만둔다 */
+  private arriveAtSeat(): void {
+    const seat = this.walkingToSeat;
+    if (!seat || this.follower.active || this.player.seated) return;
+    this.walkingToSeat = undefined;
+    if (seatsInRange(this.player.position, this.seats).includes(seat)) this.sync.sendSit(seat.id);
   }
 
   /** E·'앉기/일어나기' 버튼: 앉아 있으면 일어나고, 아니면 가까운 자리에 앉기를 요청한다 */
@@ -380,6 +495,7 @@ export class ParkScene extends Phaser.Scene {
     if (seatsInRange(this.player.position, this.seats).length === 0) return;
     this.follower.cancel();
     this.trucks.cancelPending();
+    this.walkingToSeat = undefined;
     this.sync.sendSit();
   }
 

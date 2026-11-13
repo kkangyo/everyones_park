@@ -1,0 +1,38 @@
+[
+  {
+    "id": "female-longhair",
+    "sourceBounds": {
+      "x0": 137,
+      "y0": 219,
+      "x1": 586,
+      "y1": 1097
+    },
+    "frame": 64,
+    "visible": {
+      "w": 30,
+      "h": 58
+    },
+    "anchor": [
+      32,
+      64
+    ]
+  },
+  {
+    "id": "male-handsome",
+    "sourceBounds": {
+      "x0": 687,
+      "y0": 218,
+      "x1": 1090,
+      "y1": 1097
+    },
+    "frame": 64,
+    "visible": {
+      "w": 27,
+      "h": 58
+    },
+    "anchor": [
+      32,
+      64
+    ]
+  }
+]

@@ -89,6 +89,21 @@ export function distanceToSeat(pos: Vec2, seat: Seat): number {
   return Math.hypot(dx, dy);
 }
 
+/** 그 점(클릭한 곳)에 있는 자리. 없으면 undefined (5-3) */
+export function seatAt(pos: Vec2, seats: readonly Seat[]): Seat | undefined {
+  return seats.find((seat) => distanceToSeat(pos, seat) === 0);
+}
+
+/** 그 점에서 가장 가까운 칸 번호 (클릭한 쪽 칸에 앉으러 간다) */
+export function nearestSlot(seat: Seat, pos: Vec2): number {
+  let best = 0;
+  seat.slots.forEach((s, i) => {
+    const b = seat.slots[best]!;
+    if (Math.hypot(s.x - pos.x, s.y - pos.y) < Math.hypot(b.x - pos.x, b.y - pos.y)) best = i;
+  });
+  return best;
+}
+
 /** E 로 앉을 수 있는 거리 안의 자리들 (가까운 순) */
 export function seatsInRange(pos: Vec2, seats: readonly Seat[]): Seat[] {
   return seats

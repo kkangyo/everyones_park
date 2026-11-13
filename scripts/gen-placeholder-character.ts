@@ -22,8 +22,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENDERS, OUTFITS, OUTFIT_BODIES, type Gender } from "../packages/shared/src/character";
+import { GENDERS, OUTFITS, frameOf, type Gender } from "../packages/shared/src/character";
 import { Canvas, encodePng, hex, type RGBA } from "./lib/png";
+import { drawCarryArms } from "./lib/carry-arms";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const FRAME = 32;
@@ -335,29 +336,7 @@ function drawOutfit(f: Frame, dir: Dir, step: number, style: OutfitStyle, pose: 
 
   // 팔
   if (isCarry(pose)) {
-    // 들고 걷기·들고 앉기: 팔을 몸 앞으로 모으고 흔들지 않는다
-    if (v === "side") {
-      f.rect(14, 16 + p.bob, 2, 3, coatDark);
-      f.rect(10, 18 + p.bob, 5, 2, coatDark);
-    } else if (v === "frontSide") {
-      // 왼쪽 아래 앞으로 두 팔을 모음 (가까운 팔은 왼쪽, 먼 팔은 몸통 위로 건너옴)
-      f.rect(8, 16 + p.bob, 2, 3, coatDark);
-      f.rect(9, 19 + p.bob, 4, 2, coatDark);
-      f.rect(19, 17 + p.bob, 2, 2, coatDark);
-      f.rect(15, 19 + p.bob, 5, 2, coatDark);
-    } else if (v === "backSide") {
-      // 팔이 몸 앞(먼 쪽)에 있어 어깨·위팔만 보인다
-      f.rect(8, 16 + p.bob, 2, 3, coatDark);
-      f.rect(21, 16 + p.bob, 2, 3, coatDark);
-    } else if (v === "front") {
-      f.rect(8, 16 + p.bob, 2, 3, coatDark);
-      f.rect(22, 16 + p.bob, 2, 3, coatDark);
-      f.rect(9, 19 + p.bob, 3, 2, coatDark);
-      f.rect(20, 19 + p.bob, 3, 2, coatDark);
-    } else {
-      f.rect(8, 16 + p.bob, 2, 4, coatDark);
-      f.rect(22, 16 + p.bob, 2, 4, coatDark);
-    }
+    // Shared absolute hand rig is drawn after the cell's directional transform.
   } else if (v === "side") {
     f.rect(15 - p.stride, 16 + p.bob, 2, 6, coatDark);
   } else if (v === "frontSide" || v === "backSide") {
@@ -422,13 +401,16 @@ function drawLyingOutfit(f: Frame, style: OutfitStyle): void {
   if (style.scarf) f.rect(11, 19, 2, 10, hex(style.scarf));
 }
 
-function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number, pose: PoseName) => void): void {
+function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number, pose: PoseName) => void, style?: OutfitStyle): void {
   const rowCount = ROWS.reduce((n, r) => n + r.dirs.length, 0);
   const canvas = new Canvas(WALK_FRAMES * FRAME, rowCount * FRAME);
   let row = 0;
   for (const { pose, dirs } of ROWS)
     for (const dir of dirs) {
-      for (let col = 0; col < WALK_FRAMES; col++) draw(new Frame(canvas, col * FRAME, row * FRAME, transformOf(pose, dir)), dir, col, pose);
+      for (let col = 0; col < WALK_FRAMES; col++) {
+        draw(new Frame(canvas, col * FRAME, row * FRAME, transformOf(pose, dir)), dir, col, pose);
+        if (style && isCarry(pose)) drawCarryArms(canvas, col * FRAME, row * FRAME, dir, pose === "sitCarry", col, hex(style.coatDark), BODY.skin, 16);
+      }
       row++;
     }
   const out = resolve(ROOT, `assets/sprites/${name}.png`);
@@ -438,11 +420,12 @@ function writeSheet(name: string, draw: (f: Frame, dir: Dir, step: number, pose:
 }
 
 for (const gender of GENDERS) {
+  if (frameOf(gender === "male" ? "male-handsome" : "female-longhair") !== "basic") continue;
   writeSheet(`body-${gender}`, (f, dir, step, pose) => drawBody(f, dir, step, gender, pose));
   for (const id of OUTFITS[gender]) {
-    if (OUTFIT_BODIES[id]) continue; // 전용 몸과 짝인 옷은 직접 만든 그림 (임시 그림으로 덮어쓰지 않음)
+    if (frameOf(id) !== "basic") continue; // 사진 비율 옷은 직접 만든 그림 (임시 그림으로 덮어쓰지 않음)
     const style = OUTFIT_STYLES[id];
     if (!style) throw new Error(`옷 "${id}" 의 그림 설정(OUTFIT_STYLES)이 없습니다`);
-    writeSheet(`outfit-${id}`, (f, dir, step, pose) => drawOutfit(f, dir, step, style, pose));
+    writeSheet(`outfit-${id}`, (f, dir, step, pose) => drawOutfit(f, dir, step, style, pose), style);
   }
 }

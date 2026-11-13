@@ -1,5 +1,5 @@
 // 입장 화면에서 고른 값을 브라우저에 기억한다 (닉네임·캐릭터). PIN 은 저장하지 않는다.
-import { DEFAULT_APPEARANCE, isValidAppearance, type Appearance } from "@park/shared";
+import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from "@park/shared";
 
 const STORAGE_KEY = "park.profile.v1";
 
@@ -12,7 +12,8 @@ export function loadProfile(): Profile {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<Profile> | null;
     if (raw) {
-      const appearance = isValidAppearance(raw) ? { gender: raw.gender!, outfit: raw.outfit! } : DEFAULT_APPEARANCE;
+      // 얼굴 선택 전에 저장한 값(face 없음)은 옷에 맞는 얼굴로
+      const appearance = readAppearance(raw) ?? DEFAULT_APPEARANCE;
       return { nickname: typeof raw.nickname === "string" ? raw.nickname : "", ...appearance };
     }
   } catch {

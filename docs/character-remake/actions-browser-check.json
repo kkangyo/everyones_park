@@ -1,0 +1,18 @@
+{
+  "state": {
+    "active": true,
+    "runtimeSheets": [
+      {
+        "id": "female-longhair",
+        "width": 256,
+        "height": 1792
+      },
+      {
+        "id": "male-handsome",
+        "width": 256,
+        "height": 1792
+      }
+    ]
+  },
+  "errors": []
+}

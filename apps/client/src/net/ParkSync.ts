@@ -2,22 +2,32 @@ import Phaser from "phaser";
 import {
   CLOSE_CODE,
   DEFAULT_APPEARANCE,
+  EMOTE_SHOW_MS,
   FACINGS,
   MSG,
   TICK_MS,
-  isValidAppearance,
+  readAppearance,
   type Appearance,
   type EatMessage,
+  type EmoteMessage,
   type Facing,
   type InputMessage,
   type NoticeMessage,
   type PlayerView,
+  type SitMessage,
   type TruckView,
   type Vec2,
+  CAT_ACTIONS,
+  CAT_FX,
+  type AnimalView,
+  type CatAction,
+  type CatFx,
+  type PetMessage,
 } from "@park/shared";
+import { CatView } from "../entities/CatView";
 import { CharacterView } from "../entities/CharacterView";
 import { stateCallbacks, type ParkRoom } from "./connection";
-import { ServerClock, SnapshotBuffer } from "./Interpolation";
+import { ServerClock, SnapshotBuffer, type TimedPos } from "./Interpolation";
 import { LagSim } from "./LagSim";
 
 export type NetStatus = "online" | "offline";
@@ -51,6 +61,24 @@ interface Remote {
   latest: Vec2;
 }
 
+/** 동물 한 마리의 상태 (서버 시간 기준으로 보간) */
+interface AnimalSnap extends TimedPos {
+  facing: Facing;
+  action: CatAction;
+  fx: string;
+  fxTick: number;
+}
+
+interface Animal {
+  view: CatView;
+  buffer: SnapshotBuffer<AnimalSnap>;
+  /** 이미 보여 준 효과의 fxTick (같은 효과를 두 번 보여 주지 않게) */
+  shownFx: number;
+}
+
+/** 새 이모티콘이면 (id, 남은 표시 시간 ms). 이미 본 것이거나 표시 시간이 지났으면 null */
+type EmoteWatcher = (player: PlayerView) => { id: string; remainingMs: number } | null;
+
 /**
  * 입장한 채널의 입력 전송, 다른 사람 표시를 맡는다.
  * 채널 접속(로그인 토큰)은 입장 화면이 먼저 끝내고 room 을 넘겨 준다.
@@ -61,12 +89,18 @@ export class ParkSync {
   private leaveReason?: LeaveReason;
   private leaveCode?: number;
   private readonly remotes = new Map<string, Remote>();
+  /** 동물 id → 그림 (5A-2) */
+  private readonly animals = new Map<string, Animal>();
   private readonly lag: LagSim;
   private readonly clock = new ServerClock();
   /** 내 캐릭터 서버 상태가 올 때마다 호출 (지연 흉내 적용 후) */
   onOwnState?: (state: OwnServerState, first: boolean) => void;
   /** 서버가 나에게만 보낸 알림 (주문 결과 등) */
   onNotice?: (notice: NoticeMessage) => void;
+  /** 내 이모티콘을 서버가 받아 줌 (remainingMs: 남은 표시 시간) */
+  onOwnEmote?: (id: string, remainingMs: number) => void;
+  /** 동물을 눌렀음 (쓰다듬기) */
+  onAnimalTap?: (id: string) => void;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -85,7 +119,10 @@ export class ParkSync {
     cb.onAdd("players", (player: PlayerView, sessionId: string) => {
       if (sessionId === room.sessionId) {
         let first = true;
+        const emote = this.emoteWatcher();
         const emit = () => {
+          const e = emote(player);
+          if (e) this.lag.run(() => this.onOwnEmote?.(e.id, e.remainingMs));
           // 콜백 시점의 값을 복사해 두고 지연 후 전달 (그 사이 값이 바뀌어도 그때 받은 값으로)
           const state: OwnServerState = { pos: { x: player.x, y: player.y }, seq: player.seq };
           const isFirst = first;
@@ -103,7 +140,10 @@ export class ParkSync {
         latest: { x: player.x, y: player.y },
       };
       this.remotes.set(sessionId, remote);
+      const emote = this.emoteWatcher();
       const push = () => {
+        const e = emote(player);
+        if (e) this.lag.run(() => remote.view.showEmote(e.id, e.remainingMs));
         const snap = {
           t: room.state.tick * TICK_MS,
           x: player.x,
@@ -127,6 +167,37 @@ export class ParkSync {
       const serverTime = tick * TICK_MS;
       this.lag.run(() => this.clock.observe(serverTime, performance.now()));
     });
+    // 공원 동물: 다른 사람처럼 서버 시간 기준으로 보간. 효과(냐옹·골골 등)도 같은 시점에 보여 준다
+    cb.onAdd("animals", (animal: AnimalView, id: string) => {
+      const entry: Animal = {
+        view: new CatView(this.scene, { x: animal.x, y: animal.y }, animal.name, () => this.onAnimalTap?.(id)),
+        // 동물은 멈춰 있던 자리를 끼워 넣을 때도 상태를 그대로 둔다
+        buffer: new SnapshotBuffer<AnimalSnap>((s) => s),
+        // 들어오기 전에 있었던 효과는 보여 주지 않는다
+        shownFx: animal.fxTick,
+      };
+      this.animals.set(id, entry);
+      const push = () => {
+        const snap: AnimalSnap = {
+          t: room.state.tick * TICK_MS,
+          x: animal.x,
+          y: animal.y,
+          facing: toFacing(animal.facing),
+          action: toCatAction(animal.action),
+          fx: animal.fx,
+          fxTick: animal.fxTick,
+        };
+        this.lag.run(() => entry.buffer.push(snap));
+      };
+      push();
+      cb.onChange(animal, push);
+    });
+    cb.onRemove("animals", (_animal: AnimalView, id: string) => {
+      this.lag.run(() => {
+        this.animals.get(id)?.view.destroy();
+        this.animals.delete(id);
+      });
+    });
     cb.onRemove("players", (_player: PlayerView, sessionId: string) => {
       this.lag.run(() => {
         this.remotes.get(sessionId)?.view.destroy();
@@ -142,6 +213,8 @@ export class ParkSync {
       this.leaveReason = code === CLOSE_CODE.duplicateLogin ? "duplicateLogin" : "disconnected";
       for (const r of this.remotes.values()) r.view.destroy();
       this.remotes.clear();
+      for (const a of this.animals.values()) a.view.destroy();
+      this.animals.clear();
     });
   }
 
@@ -163,12 +236,51 @@ export class ParkSync {
     this.send(MSG.eat, hand === undefined ? undefined : ({ hand } satisfies EatMessage));
   }
 
-  sendSit(): void {
-    this.send(MSG.sit);
+  sendEmote(emote: string): void {
+    this.send(MSG.emote, { emote } satisfies EmoteMessage);
+  }
+
+  sendPet(animal: string): void {
+    this.send(MSG.pet, { animal } satisfies PetMessage);
+  }
+
+  /** 화면에 보이는 위치 기준으로 range(px) 안의 가장 가까운 동물 */
+  animalNear(pos: Vec2, range: number): { id: string; view: CatView } | undefined {
+    let best: { id: string; view: CatView; d: number } | undefined;
+    for (const [id, a] of this.animals) {
+      const p = a.view.position;
+      const d = Math.hypot(p.x - pos.x, p.y - pos.y);
+      if (d <= range && (!best || d < best.d)) best = { id, view: a.view, d };
+    }
+    return best;
+  }
+
+  /** 동물의 화면 위치 (없으면 undefined) */
+  animalPosition(id: string): Vec2 | undefined {
+    return this.animals.get(id)?.view.position;
+  }
+
+  /** seat: 앉을 자리 id (자리를 클릭한 경우). 없으면 서버가 가까운 자리를 고른다 */
+  sendSit(seat?: string): void {
+    this.send(MSG.sit, seat === undefined ? undefined : ({ seat } satisfies SitMessage));
   }
 
   sendStand(): void {
     this.send(MSG.stand);
+  }
+
+  /**
+   * 플레이어 한 명의 이모티콘 변화 감지 (5-4). emoteTick 이 바뀌면 새 이모티콘이다.
+   * 늦게 들어와서 처음 받은 상태에 이미 지난 이모티콘이 있으면, 남은 시간만큼만 보여 준다
+   */
+  private emoteWatcher(): EmoteWatcher {
+    let seen = 0;
+    return (player) => {
+      if (player.emoteTick === seen) return null;
+      seen = player.emoteTick;
+      const remainingMs = EMOTE_SHOW_MS - (this.room.state.tick - player.emoteTick) * TICK_MS;
+      return player.emote && remainingMs > 0 ? { id: player.emote, remainingMs } : null;
+    };
   }
 
   private send(type: string, payload?: unknown): void {
@@ -203,6 +315,15 @@ export class ParkSync {
       const hands = this.room.state.players?.get(sessionId)?.hands;
       if (hands) r.view.setHands(hands);
     }
+    for (const a of this.animals.values()) {
+      const s = a.buffer.sample(t);
+      if (!s) continue;
+      a.view.setPose(s, s.facing, s.action);
+      if (s.fxTick > a.shownFx) {
+        a.shownFx = s.fxTick;
+        if ((CAT_FX as readonly string[]).includes(s.fx)) a.view.showFx(s.fx as CatFx);
+      }
+    }
   }
 
   /** 다른 사람들의 최신 서버 위치 (발밑 충돌 예측용) */
@@ -231,12 +352,15 @@ export class ParkSync {
   }
 }
 
+function toCatAction(value: string): CatAction {
+  return (CAT_ACTIONS as readonly string[]).includes(value) ? (value as CatAction) : "stand";
+}
+
 function toFacing(value: string): Facing {
   return (FACINGS as readonly string[]).includes(value) ? (value as Facing) : "down";
 }
 
 /** 서버가 보낸 외형. 모르는 값이면(옛 클라이언트 그림에 없는 옷 등) 기본값 */
 function toAppearance(player: PlayerView): Appearance {
-  const a = { gender: player.gender, outfit: player.outfit };
-  return isValidAppearance(a) ? { gender: a.gender, outfit: a.outfit } : DEFAULT_APPEARANCE;
+  return readAppearance(player) ?? DEFAULT_APPEARANCE;
 }

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import { isGender, type Gender } from "@park/shared";
+import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from "@park/shared";
 import { createLogger } from "../logger";
 import { NicknameTakenError, type Database, type NewUser, type User, type UserRepo } from "./types";
 
@@ -22,6 +22,8 @@ const MIGRATIONS: readonly string[] = [
      outfit        TEXT    NOT NULL,
      created_at    INTEGER NOT NULL
    ) STRICT`,
+  // 2: 얼굴 선택. 예전 계정은 '' (읽을 때 옷에 맞는 얼굴로 채움)
+  `ALTER TABLE users ADD COLUMN face TEXT NOT NULL DEFAULT ''`,
 ];
 
 interface UserRow {
@@ -30,6 +32,7 @@ interface UserRow {
   nickname_key: string;
   pin_hash: string;
   gender: string;
+  face: string;
   outfit: string;
   created_at: number;
 }
@@ -40,8 +43,8 @@ function toUser(row: UserRow): User {
     nickname: row.nickname,
     nicknameKey: row.nickname_key,
     pinHash: row.pin_hash,
-    gender: isGender(row.gender) ? row.gender : "male",
-    outfit: row.outfit,
+    // 목록에서 빠진 얼굴·옷이면 기본값 (응답할 때 api toAuthUser 가 성별 기본값으로 다시 맞춘다)
+    ...(readAppearance(row) ?? { ...DEFAULT_APPEARANCE, gender: row.gender === "female" ? "female" : "male" }),
     createdAt: row.created_at,
   };
 }
@@ -55,10 +58,10 @@ export function openSqlite(path: string): Database {
   migrate(db);
 
   const findByKey = db.prepare<[string], UserRow>("SELECT * FROM users WHERE nickname_key = ?");
-  const insert = db.prepare<[string, string, string, string, string, number]>(
-    "INSERT INTO users (nickname, nickname_key, pin_hash, gender, outfit, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  const insert = db.prepare<[string, string, string, string, string, string, number]>(
+    "INSERT INTO users (nickname, nickname_key, pin_hash, gender, face, outfit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
-  const updateAppearance = db.prepare<[string, string, number]>("UPDATE users SET gender = ?, outfit = ? WHERE id = ?");
+  const updateAppearance = db.prepare<[string, string, string, number]>("UPDATE users SET gender = ?, face = ?, outfit = ? WHERE id = ?");
 
   const users: UserRepo = {
     async findByNicknameKey(key) {
@@ -68,15 +71,15 @@ export function openSqlite(path: string): Database {
     async create(u: NewUser) {
       const createdAt = Date.now();
       try {
-        const { lastInsertRowid } = insert.run(u.nickname, u.nicknameKey, u.pinHash, u.gender, u.outfit, createdAt);
+        const { lastInsertRowid } = insert.run(u.nickname, u.nicknameKey, u.pinHash, u.gender, u.face, u.outfit, createdAt);
         return { ...u, id: Number(lastInsertRowid), createdAt };
       } catch (err) {
         if ((err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") throw new NicknameTakenError(u.nicknameKey);
         throw err;
       }
     },
-    async updateAppearance(id: number, gender: Gender, outfit: string) {
-      updateAppearance.run(gender, outfit, id);
+    async updateAppearance(id: number, a: Appearance) {
+      updateAppearance.run(a.gender, a.face, a.outfit, id);
     },
   };
 

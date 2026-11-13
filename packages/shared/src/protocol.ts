@@ -18,10 +18,14 @@ export const MSG = {
   cancelOrder: "cancelOrder",
   /** 클라 → 서버: 들고 있는 간식 먹기 시작 (EatMessage, 없으면 아직 안 먹은 첫 번째) */
   eat: "eat",
-  /** 클라 → 서버: 가까운 자리에 앉기 (내용 없음). 서버가 빈 칸을 고른다 */
+  /** 클라 → 서버: 자리에 앉기 (SitMessage, 없으면 가까운 자리). 서버가 빈 칸을 고른다 */
   sit: "sit",
   /** 클라 → 서버: 일어나기 (내용 없음) */
   stand: "stand",
+  /** 클라 → 서버: 이모티콘 (EmoteMessage). 서버가 쿨다운(EMOTE_COOLDOWN_SEC)을 확인한다 */
+  emote: "emote",
+  /** 클라 → 서버: 동물 쓰다듬기 (PetMessage). 가까이 있어야 한다 */
+  pet: "pet",
   /** 서버 → 클라: 나에게만 보내는 알림 (NoticeMessage) */
   notice: "notice",
 } as const;
@@ -34,6 +38,21 @@ export interface OrderMessage {
 export interface EatMessage {
   /** 먹을 간식의 손 번호 (PlayerView.hands 의 순서, 0 부터) */
   hand: number;
+}
+
+export interface EmoteMessage {
+  /** EMOTES 의 id */
+  emote: string;
+}
+
+export interface PetMessage {
+  /** 동물 id */
+  animal: string;
+}
+
+export interface SitMessage {
+  /** 앉을 자리 id (자리를 클릭해서 걸어간 경우). 이 자리가 가까이 있어야 하고, 다른 자리로 대신 앉지 않는다 */
+  seat: string;
 }
 
 /**
@@ -73,6 +92,8 @@ export interface InputMessage {
 export interface PlayerView {
   nickname: string;
   gender: Gender;
+  /** 얼굴 (= 몸 그림 id). shared/character.ts FACES */
+  face: string;
   outfit: string;
   x: number;
   y: number;
@@ -92,9 +113,15 @@ export interface PlayerView {
   seatId: string;
   /** 앉은 칸 번호 (seatId 가 있을 때만) */
   seatSlot: number;
+  /** 마지막 이모티콘 id. 보낸 적 없으면 "" */
+  emote: string;
+  /** 마지막 이모티콘을 보낸 서버 틱. 이 값이 바뀌면 새 이모티콘 (같은 것을 다시 보내도 구분됨) */
+  emoteTick: number;
 }
 
 export interface HeldFoodView {
+  /** Anatomical hand: "left" | "right". Stable even when the array is compacted. */
+  hand: string;
   /** 메뉴 id */
   item: string;
   /** 먹는 그림 단계 (0 ~ EAT_STAGES-1) */
@@ -111,6 +138,19 @@ export interface TruckView {
   waiting: number;
 }
 
+/** 공원 동물 한 마리 (클라이언트가 읽는 형태) */
+export interface AnimalView {
+  kind: string;
+  name: string;
+  x: number;
+  y: number;
+  facing: Facing;
+  /** shared CAT_ACTIONS */
+  action: string;
+  fx: string;
+  fxTick: number;
+}
+
 /** 서버 상태 최상위 (클라이언트가 읽는 형태) */
 export interface ParkStateView {
   /** 서버 틱 번호. tick * TICK_MS = 서버 시간(ms) */
@@ -118,6 +158,8 @@ export interface ParkStateView {
   players: Map<string, PlayerView>;
   /** 트럭 id → 트럭 상태 */
   trucks: Map<string, TruckView>;
+  /** 동물 id → 동물 */
+  animals: Map<string, AnimalView>;
 }
 
 // ---- HTTP API (계정) ----
@@ -136,8 +178,9 @@ export const API = {
 export interface LoginRequest {
   nickname: string;
   pin: string;
-  /** 캐릭터를 바꾸려면 둘 다 보낸다. 없으면 저장된 캐릭터 그대로 */
+  /** 캐릭터를 바꾸려면 셋 다 보낸다. 없으면 저장된 캐릭터 그대로 */
   gender?: Gender;
+  face?: string;
   outfit?: string;
 }
 
@@ -145,6 +188,7 @@ export interface SignupRequest {
   nickname: string;
   pin: string;
   gender: Gender;
+  face: string;
   outfit: string;
 }
 

@@ -1,4 +1,4 @@
-import { HANDS_MAX, MENU, TICK_SEC, eatStage } from "@park/shared";
+import { HANDS_MAX, MENU, TICK_SEC, eatStage, freeHand } from "@park/shared";
 import { HeldFoodState, type ParkState, type PlayerState } from "../schema/ParkState";
 
 /**
@@ -19,8 +19,11 @@ export class HandsSystem {
   /** 손에 간식을 쥐어 준다. 손이 꽉 찼으면 false */
   give(player: PlayerState, item: string): boolean {
     if (this.isFull(player) || !MENU.has(item)) return false;
+    const hand = freeHand(Array.from(player.hands));
+    if (!hand) return false;
     const food = new HeldFoodState();
     food.item = item;
+    food.hand = hand;
     food.stage = 0;
     food.eating = false;
     player.hands.push(food);

@@ -1,0 +1,99 @@
+{
+  "dimensions": [
+    144,
+    176
+  ],
+  "pixels": [
+    4608,
+    5632
+  ],
+  "deterministic": true,
+  "walkableTiles": 14086,
+  "reachableWalkableTiles": 14086,
+  "trucks": 8,
+  "benches": 22,
+  "seats": 44,
+  "landmarks": 10,
+  "checkedRoutes": 62,
+  "iceTiles": 1218,
+  "bridgeTiles": 24,
+  "mainLoopSegments": 18,
+  "mainLoopConnected": true,
+  "loopLengthTiles": 357,
+  "truckRoutes": [
+    {
+      "id": "bunsik",
+      "tiles": 53
+    },
+    {
+      "id": "eomuk",
+      "tiles": 53
+    },
+    {
+      "id": "bungeoppang",
+      "tiles": 14
+    },
+    {
+      "id": "hotteok",
+      "tiles": 14
+    },
+    {
+      "id": "goguma",
+      "tiles": 35
+    },
+    {
+      "id": "gyeranppang",
+      "tiles": 107
+    },
+    {
+      "id": "drink",
+      "tiles": 119
+    },
+    {
+      "id": "kkochi",
+      "tiles": 54
+    }
+  ],
+  "landmarkRoutes": [
+    {
+      "id": "entrance",
+      "tiles": 0
+    },
+    {
+      "id": "central-garden",
+      "tiles": 69
+    },
+    {
+      "id": "north-pond",
+      "tiles": 81
+    },
+    {
+      "id": "south-pond",
+      "tiles": 39
+    },
+    {
+      "id": "amphitheater",
+      "tiles": 118
+    },
+    {
+      "id": "snow-meadow",
+      "tiles": 136
+    },
+    {
+      "id": "winter-grove",
+      "tiles": 32
+    },
+    {
+      "id": "overlook",
+      "tiles": 60
+    },
+    {
+      "id": "forest-walk",
+      "tiles": 90
+    },
+    {
+      "id": "creek-bridge",
+      "tiles": 59
+    }
+  ]
+}

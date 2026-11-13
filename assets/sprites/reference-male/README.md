@@ -22,6 +22,14 @@ Built-in image_gen으로 생성한 원본은 generated-source.png, 사용 프롬
 
 `body-male-reference.png`·`outfit-black-blazer-reference.png`(이 폴더로 옮김)를 고쳐서 게임 그림으로 등록했다.
 
-- `../body-male-handsome.png`, `../outfit-black-blazer-handsome.png` — 옷 id `black-blazer-handsome`(검은 블레이저). 이 옷을 고르면 전용 몸을 쓴다 (`packages/shared/src/character.ts` OUTFIT_BODIES)
+- `../body-male-handsome.png`, `../outfit-black-blazer-handsome.png` — 옷 id `black-blazer-handsome`(검은 블레이저). 얼굴 `male-handsome`(웨이브 머리)과 같은 사진 비율 묶음이라 그 얼굴에서만 고를 수 있다 (`packages/shared/src/character.ts` FACES·FRAME_OF)
 - 고친 것: 전체 2px 아래로(신발 바닥 y 30), 턱까지의 얼굴을 몸 레이어로 옮김, 바닥 그림자 추가
 - 남은 것 (`pnpm check:character` FAIL): 프레임 사이 일렁임, 11행 carry up = 3행 복사, 남·북 눕기 14×14
+
+## 손·음식 고정 규격 적용 (2026-11-13)
+
+코드는 `packages/shared/src/hand-rig.ts`의 방향별 양손 접점을 사용하며 음식의 (6,9)를 그 점에 붙인다. 먹는 동안 음식만 입으로 움직이지 않는다. 기본 임시 의상 8벌은 새 접점으로 재생성했다.
+
+이후 런타임 `../outfit-black-blazer-handsome.png`도 새 손 좌표에 맞춰 보정했다. 들고 걷기·들고 앉기 48프레임의 팔/손을 수정했으며, 보이는 손 접점 64곳을 픽셀 검사한다. 몸체 PNG와 normal/sit/lie 자세는 보정 전과 동일하다. `../preview-male-handsome.png`는 현재 몸·의상 합성본이다.
+
+원본 백업, 이미지 생성 보정본, 사용 프롬프트, 음식 합성 및 애니메이션 미리보기는 [hand-rig-v1/README.md](hand-rig-v1/README.md)에 정리했다. `pnpm check:hands`에 handsome 팔·손 검사를 포함했다. 손 부착점은 맞췄지만 기존 얼굴 일렁임과 눕기 비율은 여전히 전체 규격 검사의 실패 항목이다. 전체 시트가 개정 2.3의 모든 기준을 통과한 것은 아니다.

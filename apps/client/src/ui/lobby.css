@@ -57,6 +57,7 @@
 }
 
 .lobby-gender,
+.lobby-faces,
 .lobby-outfits {
   display: flex;
   flex-wrap: wrap;

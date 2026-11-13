@@ -4,6 +4,7 @@
  *   pnpm check:character <합성본.png>               몸+옷을 합친 미리보기 하나
  *   pnpm check:character <body-*.png>               몸 레이어만 (carry 와 normal 이 같아도 됨)
  *   pnpm check:character <body-*.png> <outfit-*.png> 두 레이어 (합쳐서 검사 + 옷이 얼굴을 덮는지)
+ *   ... --hands                                   보이는 손 부착점 주변 알파 검사 (손 모양 인식 아님)
  *
  * 결과: OK / WARN(눈으로 확인 필요) / FAIL(규격 위반). FAIL 이 하나라도 있으면 종료 코드 1.
  * 방향이 맞는지, 동작이 자연스러운지는 검사하지 못한다. 미리보기를 재생해서 눈으로 본다.
@@ -11,6 +12,8 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { Canvas, decodePng } from "./lib/png";
+import { HAND_RIG, HAND_SIDES, handGrip } from "../packages/shared/src/hand-rig";
+import type { Facing } from "../packages/shared/src/movement";
 
 const FRAME = 32;
 const COLS = 4;
@@ -52,6 +55,11 @@ const report = (level: Level, msg: string) => results.push({ level, msg });
 
 function load(path: string): Canvas {
   const png = decodePng(readFileSync(path));
+  if (png.canvas.width === WIDTH * 2 && png.canvas.height === HEIGHT * 2) {
+    const logical = new Canvas(WIDTH, HEIGHT);
+    for(let y=0;y<HEIGHT;y++)for(let x=0;x<WIDTH;x++)logical.set(x,y,png.canvas.get(x*2+1,y*2+1));
+    png.canvas = logical;
+  }
   const { width, height } = png.canvas;
   const name = basename(path);
   if (width !== WIDTH || height !== HEIGHT) report("FAIL", `${name}: 크기 ${width}x${height} (128x896 이어야 함)`);
@@ -210,9 +218,29 @@ function checkLayers(body: Canvas, outfit: Canvas): void {
   else report("WARN", `옷 레이어가 턱 위 머리·얼굴 픽셀 ${total}개를 덮음 (행 ${rows.join(", ")}). 후드·모자가 아니면 레이어 나누기 확인`);
 }
 
-const files = process.argv.slice(2);
+/** Alpha occupancy is a support check, not semantic detection of skin or hands. */
+function checkHandSupport(sheet: Canvas): void {
+  const directions: Facing[] = ["down", "left", "right", "up", "down-left", "down-right", "up-left", "up-right"];
+  for (const row of [...Array.from({ length: 8 }, (_, i) => i + 8), 20, 21, 22, 23]) {
+    const seated = row >= 20;
+    const direction = seated ? directions[row - 20]! : directions[row - 8]!;
+    if (["up", "up-left", "up-right"].includes(direction)) continue; // hidden by torso
+    for (let col = 0; col < COLS; col++) for (const hand of HAND_SIDES) {
+      const g = handGrip(direction, hand, seated, col);
+      let pixels = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+        if (opaque(sheet, row, col, g.x + dx, g.y + dy)) pixels++;
+      if (!pixels) report("FAIL", `${row}행 ${col}열 ${hand}: 손 부착점 (${g.x},${g.y}) 주변에 옷/손 픽셀이 없음`);
+    }
+  }
+  report("WARN", `hand-rig v${HAND_RIG.version}: 부착점 주변 알파만 검사함. 실제 손 모양·가려짐은 character-hand-guide.png와 대조 필요`);
+}
+
+const args = process.argv.slice(2);
+const checkHands = args.includes("--hands");
+const files = args.filter((arg) => arg !== "--hands");
 if (files.length < 1 || files.length > 2) {
-  console.error("사용법: pnpm check:character <합성본.png | body.png> [outfit.png]");
+  console.error("사용법: pnpm check:character <합성본.png | body.png> [outfit.png] [--hands]");
   process.exit(2);
 }
 const layers = files.map(load);
@@ -223,6 +251,10 @@ if (results.some((r) => r.level === "FAIL")) {
 const isBodyOnly = files.length === 1 && basename(files[0]!).startsWith("body-");
 checkSheet(composite(layers), isBodyOnly);
 if (layers.length === 2) checkLayers(layers[0]!, layers[1]!);
+if (checkHands) {
+  if (isBodyOnly) report("FAIL", "손은 옷 레이어 소유입니다. --hands는 합성본 또는 몸+옷으로 검사하세요.");
+  else checkHandSupport(layers[layers.length - 1]!);
+}
 
 for (const r of results) console.log(`${r.level.padEnd(4)} ${r.msg}`);
 const count = (l: Level) => results.filter((r) => r.level === l).length;

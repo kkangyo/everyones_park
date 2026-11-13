@@ -17,8 +17,6 @@ export interface TruckControllerDeps {
   say(text: string): void;
 }
 
-const NUMBER_KEYS = ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE"] as const;
-
 /**
  * 간식 트럭 다루기 (4-1 ~ 4-3, 클라이언트 쪽).
  * - 트럭 앞에 서면 'Space 주문' 안내, Space·트럭 클릭·화면의 '주문' 버튼 → 메뉴 말풍선
@@ -49,7 +47,7 @@ export class TruckController {
     const K = Phaser.Input.Keyboard.KeyCodes;
     kb.addKey(K.SPACE, true).on("down", () => this.openMenuInFront());
     kb.addKey(K.ESC).on("down", () => this.closeMenu());
-    NUMBER_KEYS.forEach((name, i) => kb.addKey(K[name]).on("down", () => this.menu?.chooseIndex(i)));
+    // 숫자키는 공원 씬이 나눠 준다 (메뉴가 열려 있으면 메뉴, 아니면 이모티콘)
   }
 
   /** 지금 서 있는 트럭 앞에서 주문할 수 있는지 (메뉴가 닫혀 있고 기다리는 주문이 없을 때). 터치 '주문' 버튼 표시용 */
@@ -112,6 +110,11 @@ export class TruckController {
       this.sync.sendOrder(truck.def.id, item);
       this.closeMenu();
     });
+  }
+
+  /** 숫자키: 열린 메뉴의 index 번째 고르기 */
+  chooseMenuIndex(index: number): void {
+    this.menu?.chooseIndex(index);
   }
 
   get menuOpen(): boolean {

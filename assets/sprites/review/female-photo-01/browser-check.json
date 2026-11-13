@@ -1,0 +1,43 @@
+{
+  "browser": "Chromium",
+  "poseRows": 28,
+  "animatedRows": 28,
+  "distinctFramesPerRow": [
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    2,
+    3,
+    3,
+    3,
+    2,
+    3,
+    3,
+    3,
+    3
+  ],
+  "foodCombinations": 48,
+  "foodFramesRendered": 576,
+  "layerViews": [
+    "body",
+    "outfit",
+    "both"
+  ],
+  "pageErrors": []
+}

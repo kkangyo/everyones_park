@@ -19,10 +19,17 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "gen:map": "tsx scripts/gen-placeholder-map.ts",
+    "preview:map": "tsx scripts/preview-park-layout.ts",
+    "check:map": "tsx scripts/check-park-layout.ts",
     "gen:character": "tsx scripts/gen-placeholder-character.ts",
     "gen:food": "tsx scripts/gen-placeholder-food.ts",
+    "gen:emote": "tsx scripts/gen-placeholder-emotes.ts",
+    "gen:cat": "tsx scripts/gen-cat.ts",
     "gen:guide": "tsx scripts/gen-character-guide.ts",
-    "check:character": "tsx scripts/check-character-sheet.ts"
+    "check:character": "tsx scripts/check-character-sheet.ts",
+    "preview:character": "tsx scripts/preview-character-sheet.ts",
+    "check:hands": "tsx scripts/check-hand-rig.ts && tsx scripts/check-character-detail.ts",
+    "check:character-detail": "tsx scripts/check-character-detail.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

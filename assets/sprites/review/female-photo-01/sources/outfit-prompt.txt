@@ -1,0 +1,12 @@
+Use case: precise-object-edit, character OUTFIT layer creation.
+Image1 is the APPROVED BODY pose atlas for a young adult woman with long straight side-parted black hair and warm fair skin. Its heads, hair, ears, neck, legs, black flat shoes and shadows belong to a separate body layer and MUST NOT appear in your output. Use exact positions and directions of Image1. Image2 is ONLY the geometric guide (its purple/blue/green colors are part labels, NOT the clothing colors).
+Create ONLY the matching garment and exposed arms/hands, no duplicate head/hair/neck/shoes/shadow. There must be genuine transparency in all excluded regions, including every head area. Do not fill the gaps with grey noise or checkerboards.
+Outfit from the user's photo: simple elegant ivory/white sleeveless top, bare arms, fine gold necklace with one tiny pendant, charcoal fitted trousers (unseen in photo, consistent inferred detail). No coat, scarf, gloves, bags or added objects. Skin color matches Image1. Crisp native32x32 pixel clusters, restrained colors, elevated three-quarter orthogonal top-down camera, screen top-left light. White fabric gets a few clear beige shadow clusters, no blurred gradients. Preserve the approved body's exact proportions and anchors.
+INTERMEDIATE atlas: 4 columns x4 rows, 16 base poses. Each logical cell32x32, uniformly enlarged8x to1024x1024. Transparent background, no labels/grid/borders.
+Row1: normal down,left,right,up.
+Row2: normal down-left,down-right,up-left,up-right.
+Row3: seated down,left,right,up.
+Row4: lying supine HEAD toward down,left,right,up. Arms rest beside torso; face is skyward but not part of this outfit layer.
+Standing top region native y19..26, trousers y27..29. No pixels on head y6..18 or shoes y30. Seat shoulders shift down3px, top visible y22..28, bent trouser legs at y27..29. Bare arms and hands are supplied by this outfit layer even though skin, do not omit them. For up views long body-owned hair overlays much of the upper torso: leave its silhouette transparent and draw ivory shoulder edges/hem around it, not hair itself. Front and side hair strands also remain body-owned.
+This pass makes neutral normal/sit arms. Subsequent exact native assembly will make carry/sitCarry palms at the common coordinates. Do not paint food, markers or held items.
+For lying: garment follows the25px-long body: west-facing-head torso x15..22, feetward trouser part x23..24, centered around y23 with arms beside torso. Other orientations correspond to the approved Image1. Preserve 16 correct base poses and exact cell origins.

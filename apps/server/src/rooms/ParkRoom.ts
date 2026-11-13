@@ -23,6 +23,8 @@ import { config } from "../config";
 import { createLogger } from "../logger";
 import type { ParkMap } from "../map";
 import { ParkState, PlayerState } from "../schema/ParkState";
+import { CatSystem } from "../systems/cats";
+import { EmoteSystem } from "../systems/emotes";
 import { HandsSystem } from "../systems/hands";
 import { SeatSystem } from "../systems/seats";
 import { TruckSystem } from "../systems/truck";
@@ -66,6 +68,8 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   private hands!: HandsSystem;
   private trucks!: TruckSystem;
   private seats!: SeatSystem;
+  private emotes!: EmoteSystem;
+  private cats!: CatSystem;
   /** sessionId → 아직 처리하지 않은 입력 */
   private readonly inputQueues = new Map<string, InputMessage[]>();
   /** sessionId → 입력 처리 몫 (MAX_INPUT_CREDIT 참고) */
@@ -96,11 +100,25 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
 
     // 앉기·일어나기 (Phase 5)
     this.seats = new SeatSystem(this.state, this.map.seats, this.map.grid, (sessionId, msg) => this.notify(sessionId, msg));
-    this.onMessage(MSG.sit, (client) => this.seats.sit(client.sessionId));
+    this.onMessage(MSG.sit, (client, message: unknown) => this.seats.sit(client.sessionId, parseSeat(message)));
     this.onMessage(MSG.stand, (client) => {
       const player = this.state.players.get(client.sessionId);
       if (player) this.seats.stand(player);
     });
+
+    // 이모티콘 (5-4)
+    this.emotes = new EmoteSystem(this.state);
+    this.onMessage(MSG.emote, (client, message: unknown) => {
+      const emote = this.emotes.emote(client.sessionId, message);
+      if (emote) this.cats.onEmote(client.sessionId, emote);
+    });
+
+    // 공원 동물 (Phase 5A). 친밀도는 계정마다 기억한다 (서버를 다시 켜면 처음부터)
+    this.cats = new CatSystem(this.state, this.map.animals, this.map.grid, (sessionId) => this.clients.get(sessionId)?.auth?.userId);
+    this.onMessage(MSG.pet, (client, message: unknown) => {
+      if (typeof message === "object" && message !== null) this.cats.pet(client.sessionId, (message as Record<string, unknown>).animal);
+    });
+
     // 고정 틱 누산기: 타이머는 틱 간격의 절반마다 깨어나서, 실제로 흐른 시간만큼 틱을 돌린다.
     // (setInterval 만 믿으면 타이머가 밀릴 때 틱 수가 줄어 모두가 느려진다)
     this.lastAdvanceAt = performance.now();
@@ -132,6 +150,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     const spawn = this.pickSpawn();
     player.nickname = auth.nickname;
     player.gender = auth.gender;
+    player.face = auth.face;
     player.outfit = auth.outfit;
     player.x = spawn.x;
     player.y = spawn.y;
@@ -140,6 +159,8 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     player.seq = 0;
     player.seatId = "";
     player.seatSlot = 0;
+    player.emote = "";
+    player.emoteTick = 0;
     this.state.players.set(client.sessionId, player);
     this.inputQueues.set(client.sessionId, []);
     this.inputCredits.set(client.sessionId, 0);
@@ -150,6 +171,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     const userId = client.auth?.userId;
     if (userId !== undefined && activeByUser.get(userId) === client) activeByUser.delete(userId);
     this.trucks.cancel(client.sessionId);
+    this.cats.onLeave(client.sessionId);
     const player = this.state.players.get(client.sessionId);
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
@@ -209,6 +231,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
     }
     this.trucks.tick(this.state.tick);
     this.hands.tick(this.state.tick);
+    this.cats.tick(this.state.tick);
   }
 
   /** 한 사람에게만 보내는 알림 (주문 결과 등) */
@@ -263,6 +286,13 @@ function parseHand(message: unknown): number | undefined {
   if (typeof message !== "object" || message === null) return undefined;
   const { hand } = message as Record<string, unknown>;
   return typeof hand === "number" && Number.isInteger(hand) && hand >= 0 && hand < HANDS_MAX ? hand : undefined;
+}
+
+/** 앉기 메시지의 자리 id. 없거나 틀리면 undefined (= 가까운 자리) */
+function parseSeat(message: unknown): string | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { seat } = message as Record<string, unknown>;
+  return typeof seat === "string" && seat.length > 0 && seat.length <= 64 ? seat : undefined;
 }
 
 const AXES: readonly number[] = [-1, 0, 1];

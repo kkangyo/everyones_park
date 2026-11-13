@@ -1,5 +1,6 @@
 /**
- * 임시 타일셋(PNG)과 공원 맵(Tiled JSON)을 생성한다.
+ * 겨울 비정형 공원 레이아웃과 타일셋(PNG)/Tiled JSON을 생성한다.
+ * 배치 원본: scripts/lib/winter-park-layout.ts. 반복 생성해도 같은 맵을 만든다.
  *
  *   pnpm gen:map
  *
@@ -15,6 +16,9 @@
  * 자리 칸도 obstacles 레이어에 벤치 타일로 막는다 (걸어서 지나갈 수 없음). 벤치 타일은 ysort 없이 땅 높이에 그려서
  * 앉은 캐릭터가 항상 벤치 위에 보인다.
  *
+ * animals 레이어 (5A-2): 점 오브젝트 = 동물이 사는 곳. 속성 kind(cat), label(이름), roam(돌아다니는 범위, 타일), boldness(대담함 0–1).
+ * 읽는 함수는 shared/animals.ts 의 animalsFromTiled.
+ *
  * obstacles 타일 속성 (클라이언트가 읽음)
  *   ysort  : true 면 타일 레이어에서 빼서 캐릭터와 앞뒤 순서를 맞춰 그린다 (나무·바위·울타리)
  *   sprite : 타일 대신 그릴 스프라이트 이름. 아랫변을 타일 아랫변에 맞춰 그린다 (위로 삐져나옴)
@@ -25,40 +29,22 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Canvas, CLEAR, encodePng, hex } from "./lib/png";
+import { MAP_W, MAP_H, WINTER_TILE as T, EMPTY, ENTRANCE, LANDMARKS, benchSize, buildWinterParkLayout } from "./lib/winter-park-layout";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TILE = 32;
 const COLUMNS = 8;
 const ROWS = 2;
 
-const MAP_W = 120;
-const MAP_H = 90;
-
-// 타일 번호 (타일셋 안의 위치). Tiled gid = 번호 + 1
-const T = {
-  snow: 0,
-  snow2: 1,
-  path: 2,
-  plaza: 3,
-  ice: 4,
-  hill: 5,
-  tree: 6,
-  fence: 7,
-  rock: 8,
-  /** 트럭 자리 (그림 없음, 충돌만). 트럭 그림은 클라이언트가 trucks 레이어를 보고 따로 그린다 */
-  truck: 9,
-  /** 벤치. 앉아서 보는 방향별 (등받이가 반대쪽). 가로로 이어 붙이면 긴 벤치가 된다 */
-  benchDown: 10,
-  benchUp: 11,
-  benchLeft: 12,
-} as const;
+/**
+ * 공원 동물이 사는 곳 (5A-2). 고등어: 사진 속 고등어 태비. 입구 광장 서쪽 벤치 근처라 들어오면 바로 만난다.
+ * 조금 낯을 가리는 편 (boldness 0.45)
+ */
+const ANIMALS = [{ name: "cat-godeungeo", kind: "cat", label: "고등어", col: 62, row: 157, roam: 9, boldness: 0.45 }] as const;
 
 /** 트럭 크기 (타일). trucks/<id>.png 그림의 아래쪽 이 크기만큼이 트럭 몸체 */
 const TRUCK_W = 3;
 const TRUCK_H = 2;
-/** 트럭 순서 (trucks.json id). 중앙 광장을 도는 산책로를 따라 시계 방향으로 놓인다 */
-const TRUCK_ORDER = ["bunsik", "eomuk", "bungeoppang", "hotteok", "goguma", "gyeranppang", "drink", "kkochi"];
-
 // ---------------------------------------------------------------------------
 // 난수 (항상 같은 맵이 나오도록 시드 고정)
 
@@ -105,6 +91,23 @@ const painters: Record<number, TilePainter> = {
     }
   },
   [T.hill]: speckle("#d3dfea", "#bccbdb", 0.06),
+  [T.garden]: (c, ox, oy) => {
+    c.rect(ox,oy,TILE,TILE,CLEAR);
+    c.rect(ox+3,oy+7,26,22,hex("#85775f"));
+    c.rect(ox+5,oy+8,22,17,hex("#656957"));
+    for(const x of [8,16,24]){c.rect(ox+x,oy+5,1,15,hex("#796247"));c.rect(ox+x-2,oy+9,5,2,hex("#83917c"));}
+    c.rect(ox+3,oy+7,26,3,hex("#f8fbff"));
+    c.rect(ox+4,oy+25,24,2,hex("#dce5ec"));
+  },
+  [T.bridge]: (c, ox, oy) => {
+    c.rect(ox,oy,TILE,TILE,hex("#b69b72"));
+    for(let x=0;x<TILE;x+=8){c.rect(ox+x,oy,1,TILE,hex("#806b4e"));c.rect(ox+x+2,oy+4,1,24,hex("#cdb68d"));}
+    c.rect(ox,oy+1,TILE,2,hex("#f4f7fa"));c.rect(ox,oy+29,TILE,2,hex("#f4f7fa"));
+  },
+  [T.stage]: (c, ox, oy) => {
+    c.rect(ox,oy,TILE,TILE,hex("#b7b4aa"));
+    for(let y=0;y<TILE;y+=8){c.rect(ox,oy+y,TILE,2,hex("#eef2f4"));c.rect(ox,oy+y+6,TILE,2,hex("#8c928f"));}
+  },
   [T.tree]: (c, ox, oy) => {
     c.rect(ox, oy, TILE, TILE, CLEAR);
     c.rect(ox + 14, oy + 24, 4, 7, hex("#6b4a2f"));
@@ -219,192 +222,9 @@ function buildTileset(): Canvas {
 // ---------------------------------------------------------------------------
 // 맵 배치
 
-const EMPTY = -1;
-const ground = new Array<number>(MAP_W * MAP_H).fill(T.snow);
-const obstacles = new Array<number>(MAP_W * MAP_H).fill(EMPTY);
-/** 나무를 심지 않을 칸 (길, 광장, 언덕 등) */
-const reserved = new Array<boolean>(MAP_W * MAP_H).fill(false);
-
-const idx = (x: number, y: number) => y * MAP_W + x;
-const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < MAP_W && y < MAP_H;
-
-function setGround(x: number, y: number, tile: number, reserve = true): void {
-  if (!inside(x, y)) return;
-  ground[idx(x, y)] = tile;
-  if (reserve) reserved[idx(x, y)] = true;
-}
-
-function setObstacle(x: number, y: number, tile: number): void {
-  if (!inside(x, y)) return;
-  obstacles[idx(x, y)] = tile;
-  reserved[idx(x, y)] = true;
-}
-
-function fillEllipse(cx: number, cy: number, rx: number, ry: number, fn: (x: number, y: number) => void): void {
-  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
-    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-      const dx = (x - cx) / rx;
-      const dy = (y - cy) / ry;
-      if (dx * dx + dy * dy <= 1) fn(x, y);
-    }
-}
-
-/** 두 점 사이에 폭 width 칸짜리 길을 깐다 */
-function drawPath(x0: number, y0: number, x1: number, y1: number, width = 3): void {
-  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
-  const half = Math.floor(width / 2);
-  for (let s = 0; s <= steps; s++) {
-    const x = Math.round(x0 + ((x1 - x0) * s) / steps);
-    const y = Math.round(y0 + ((y1 - y0) * s) / steps);
-    for (let j = -half; j <= half; j++) for (let i = -half; i <= half; i++) setGround(x + i, y + j, T.path);
-  }
-}
-
-function buildMap(): void {
-  const rand = mulberry32(42);
-
-  // 바탕 눈에 약간의 얼룩
-  for (let i = 0; i < ground.length; i++) if (rand() < 0.18) ground[i] = T.snow2;
-
-  const center = { x: 60, y: 45 };
-
-  // 산책로: 중앙을 도는 고리 + 각 구역으로 가는 길
-  for (let a = 0; a < 360; a += 1) {
-    const r = (a * Math.PI) / 180;
-    const x = Math.round(center.x + Math.cos(r) * 22);
-    const y = Math.round(center.y + Math.sin(r) * 15);
-    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) setGround(x + i, y + j, T.path);
-  }
-  drawPath(center.x, 84, center.x, center.y); // 입구 → 중앙
-  drawPath(center.x, center.y, 45, 40); // 중앙 → 호수
-  drawPath(center.x, center.y, 90, 24); // 중앙 → 전망 언덕
-  drawPath(center.x, center.y, 90, 56); // 중앙 → 눈사람 광장
-  drawPath(center.x, center.y, 60, 12); // 중앙 → 북쪽 숲길
-
-  // 중앙 광장 (나중에 트럭이 주변에 배치됨)
-  fillEllipse(center.x, center.y, 7, 6, (x, y) => setGround(x, y, T.plaza));
-
-  // 입구 광장 (시작 위치)
-  for (let y = 78; y <= 87; y++) for (let x = 50; x <= 70; x++) setGround(x, y, T.plaza);
-
-  // 눈사람 광장
-  fillEllipse(92, 56, 7, 6, (x, y) => setGround(x, y, T.plaza));
-
-  // 전망 언덕 + 북쪽 난간
-  fillEllipse(92, 18, 14, 9, (x, y) => setGround(x, y, T.hill));
-  for (let x = 82; x <= 102; x++) setObstacle(x, 10, T.fence);
-
-  // 얼어붙은 호수 (지나갈 수 없음)
-  fillEllipse(28, 38, 15, 10, (x, y) => setObstacle(x, y, T.ice));
-  // 호숫가 바위
-  fillEllipse(28, 38, 17, 12, (x, y) => {
-    if (obstacles[idx(x, y)] === EMPTY && !reserved[idx(x, y)] && rand() < 0.12) setObstacle(x, y, T.rock);
-  });
-
-  // 외곽 나무 울타리 (아래쪽 입구만 비움)
-  for (let y = 0; y < MAP_H; y++)
-    for (let x = 0; x < MAP_W; x++) {
-      const border = x < 2 || y < 2 || x >= MAP_W - 2 || y >= MAP_H - 2;
-      const entrance = y >= MAP_H - 2 && x >= 56 && x <= 64;
-      if (border && !entrance) setObstacle(x, y, T.tree);
-    }
-
-  // 흩어진 나무: 길·광장 바로 옆은 비우고, 구석은 숲처럼 빽빽하게
-  for (let y = 2; y < MAP_H - 2; y++)
-    for (let x = 2; x < MAP_W - 2; x++) {
-      let nearReserved = false;
-      for (let j = -1; j <= 1 && !nearReserved; j++)
-        for (let i = -1; i <= 1; i++) if (reserved[idx(x + i, y + j)]) nearReserved = true;
-      if (nearReserved) continue;
-      const corner = (x < 22 || x > MAP_W - 22) && (y < 18 || y > MAP_H - 18);
-      if (rand() < (corner ? 0.4 : 0.04)) setObstacle(x, y, T.tree);
-    }
-}
-
-interface TruckObject {
-  name: string;
-  col: number;
-  row: number;
-}
-
-/**
- * 트럭 8대: 중앙을 도는 산책로 바로 위쪽에, 산책로를 바라보게(앞 = 아래) 놓는다.
- * 각도는 각 구역으로 가는 길과 겹치지 않게 고름. 나무를 다 심은 뒤에 놓아서 나머지 맵 배치는 바뀌지 않는다.
- */
-function placeTrucks(center: { x: number; y: number }): TruckObject[] {
-  // 위쪽 4대는 산책로 바깥, 아래쪽 4대는 산책로 안쪽 (모두 산책로를 바라봄). 왼쪽은 호수라 비움
-  const angles = [-140, -115, -65, -15, 50, 70, 110, 140];
-  return TRUCK_ORDER.map((name, i) => {
-    const r = (angles[i]! * Math.PI) / 180;
-    const pathX = Math.round(center.x + Math.cos(r) * 22);
-    const pathY = Math.round(center.y + Math.sin(r) * 15);
-    const col = pathX - 1;
-    const row = pathY - 1 - TRUCK_H; // 트럭 아랫변 = 산책로(3칸 폭) 윗줄 바로 위
-    // 트럭 + 주변 1칸 + 앞 2칸의 나무·바위를 치운다
-    for (let y = row - 1; y <= row + TRUCK_H + 1; y++)
-      for (let x = col - 1; x <= col + TRUCK_W; x++) if (inside(x, y) && obstacles[idx(x, y)] !== T.ice) obstacles[idx(x, y)] = EMPTY;
-    for (let y = row; y < row + TRUCK_H; y++)
-      for (let x = col; x < col + TRUCK_W; x++) {
-        if (obstacles[idx(x, y)] === T.ice) throw new Error(`트럭 "${name}" 이(가) 호수와 겹칩니다 (${x}, ${y})`);
-        setObstacle(x, y, T.truck);
-      }
-    return { name, col, row };
-  });
-}
-
-interface BenchObject {
-  name: string;
-  col: number;
-  row: number;
-  /** 칸 수 = 벤치 길이 (타일) */
-  slots: number;
-  facing: "down" | "up" | "left";
-}
-
-/** 벤치 자리 (기획서 6장: 벤치당 2명). 구역별 풍경을 보도록 놓는다 */
-const BENCHES: BenchObject[] = [
-  // 중앙 광장 북쪽(남쪽을 봄)·남쪽(북쪽을 봄). 가운데 세로 길(59–61열)은 비움
-  { name: "bench-plaza-n1", col: 56, row: 40, slots: 2, facing: "down" },
-  { name: "bench-plaza-n2", col: 63, row: 40, slots: 2, facing: "down" },
-  { name: "bench-plaza-s1", col: 56, row: 50, slots: 2, facing: "up" },
-  { name: "bench-plaza-s2", col: 63, row: 50, slots: 2, facing: "up" },
-  // 입구 광장
-  { name: "bench-entrance-1", col: 52, row: 79, slots: 2, facing: "down" },
-  { name: "bench-entrance-2", col: 67, row: 79, slots: 2, facing: "down" },
-  // 호숫가: 호수(서쪽)를 봄
-  { name: "bench-lake", col: 46, row: 34, slots: 2, facing: "left" },
-  // 전망 언덕: 난간 너머(북쪽)를 봄
-  { name: "bench-hill", col: 91, row: 13, slots: 2, facing: "up" },
-  // 눈사람 광장
-  { name: "bench-snowman", col: 91, row: 51, slots: 2, facing: "down" },
-];
-
-const BENCH_TILE = { down: T.benchDown, up: T.benchUp, left: T.benchLeft } as const;
-
-/** 벤치 크기 (타일). 옆을 보는 벤치는 세로로 길다 */
-function benchSize(b: BenchObject): { w: number; h: number } {
-  return b.facing === "left" ? { w: 1, h: b.slots } : { w: b.slots, h: 1 };
-}
-
-/** 벤치를 놓고 주변 1칸 + 앞 2칸의 나무·바위를 치운다 (일어나서 설 자리). 트럭 다음에 놓는다 */
-function placeBenches(): void {
-  for (const b of BENCHES) {
-    const { w, h } = benchSize(b);
-    const front = { down: [0, 1], up: [0, -1], left: [-1, 0] }[b.facing];
-    for (let y = b.row - 1; y <= b.row + h; y++)
-      for (let x = b.col - 1; x <= b.col + w; x++) clearForBench(b, x, y);
-    for (let k = 1; k <= 2; k++)
-      for (let y = b.row; y < b.row + h; y++) for (let x = b.col; x < b.col + w; x++) clearForBench(b, x + front[0]! * k, y + front[1]! * k);
-    for (let y = b.row; y < b.row + h; y++) for (let x = b.col; x < b.col + w; x++) setObstacle(x, y, BENCH_TILE[b.facing]);
-  }
-}
-
-function clearForBench(b: BenchObject, x: number, y: number): void {
-  if (!inside(x, y)) return;
-  const t = obstacles[idx(x, y)];
-  if (t === T.ice || t === T.truck || t === T.fence) throw new Error(`벤치 "${b.name}" 주변 (${x}, ${y}) 이(가) 호수·트럭·난간과 겹칩니다`);
-  obstacles[idx(x, y)] = EMPTY;
-}
+const layout = buildWinterParkLayout();
+const { ground, obstacles, trucks } = layout;
+const BENCHES = layout.benches;
 
 function toTiledData(layer: number[]): number[] {
   return layer.map((t) => (t === EMPTY ? 0 : t + 1));
@@ -414,9 +234,6 @@ function toTiledData(layer: number[]): number[] {
 
 const tileset = buildTileset();
 const tallTree = buildTallTree();
-buildMap();
-const trucks = placeTrucks({ x: 60, y: 45 });
-placeBenches();
 
 const tilesetPath = resolve(ROOT, "assets/tiles/placeholder.png");
 const treePath = resolve(ROOT, "assets/sprites/tree-tall.png");
@@ -439,8 +256,9 @@ const map = {
   height: MAP_H,
   tilewidth: TILE,
   tileheight: TILE,
-  nextlayerid: 6,
-  nextobjectid: 2 + trucks.length + BENCHES.length,
+  nextlayerid: 8,
+  nextobjectid: 2 + trucks.length + BENCHES.length + LANDMARKS.length + ANIMALS.length,
+  properties: [{ name: "season", type: "string", value: "winter" }, { name: "layout", type: "string", value: "organic-loop-v1" }],
   layers: [
     { id: 1, name: "ground", type: "tilelayer", x: 0, y: 0, width: MAP_W, height: MAP_H, opacity: 1, visible: true, data: toTiledData(ground) },
     { id: 2, name: "obstacles", type: "tilelayer", x: 0, y: 0, width: MAP_W, height: MAP_H, opacity: 1, visible: true, data: toTiledData(obstacles) },
@@ -455,7 +273,7 @@ const map = {
       visible: true,
       objects: [
         // 입구 광장 가운데. 좌표는 캐릭터 발밑 위치(px)
-        { id: 1, name: "entrance", type: "spawn", point: true, x: 60 * TILE + TILE / 2, y: 83 * TILE + TILE / 2, width: 0, height: 0, rotation: 0, visible: true },
+        { id: 1, name: "entrance", type: "spawn", point: true, x: ENTRANCE.col * TILE + TILE / 2, y: ENTRANCE.row * TILE + TILE / 2, width: 0, height: 0, rotation: 0, visible: true },
       ],
     },
     {
@@ -510,6 +328,31 @@ const map = {
         };
       }),
     },
+    {
+      id: 6, name: "landmarks", type: "objectgroup", draworder: "topdown", x: 0, y: 0, opacity: 1, visible: true,
+      objects: LANDMARKS.map((p, i) => ({
+        id: 2 + trucks.length + BENCHES.length + i, name: p.id, type: p.kind, point: true,
+        x: (p.center[0] + .5) * TILE, y: (p.center[1] + .5) * TILE, width: 0, height: 0, rotation: 0, visible: true,
+        properties: [
+          { name: "label", type: "string", value: p.name },
+          { name: "accessX", type: "float", value: (p.access[0] + .5) * TILE },
+          { name: "accessY", type: "float", value: (p.access[1] + .5) * TILE },
+        ],
+      })),
+    },
+    {
+      id: 7, name: "animals", type: "objectgroup", draworder: "topdown", x: 0, y: 0, opacity: 1, visible: true,
+      objects: ANIMALS.map((a, i) => ({
+        id: 2 + trucks.length + BENCHES.length + LANDMARKS.length + i, name: a.name, type: "animal", point: true,
+        x: a.col * TILE + TILE / 2, y: a.row * TILE + TILE / 2, width: 0, height: 0, rotation: 0, visible: true,
+        properties: [
+          { name: "kind", type: "string", value: a.kind },
+          { name: "label", type: "string", value: a.label },
+          { name: "roam", type: "int", value: a.roam },
+          { name: "boldness", type: "float", value: a.boldness },
+        ],
+      })),
+    },
   ],
   tilesets: [
     {
@@ -537,4 +380,4 @@ writeFileSync(mapPath, JSON.stringify(map));
 const blocked = obstacles.filter((t) => t !== EMPTY).length;
 console.log(`tileset → ${tilesetPath} (${tileset.width}x${tileset.height})`);
 console.log(`tree    → ${treePath} (${tallTree.width}x${tallTree.height})`);
-console.log(`map     → ${mapPath} (${MAP_W}x${MAP_H}, obstacles ${blocked} tiles)`);
+console.log(`map     → ${mapPath} (${MAP_W}x${MAP_H}, obstacles ${blocked} tiles, sealed pockets ${layout.sealedPockets})`);

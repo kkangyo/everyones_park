@@ -6,6 +6,7 @@
  * 출력
  *   docs/character-size-guide.png     128x896 (4열 x 28행, 셀 32x32). 게임 시트와 같은 배치, 투명 배경
  *   docs/character-size-guide-x4.png  4배 확대 + 셀 격자 + 기준선(빨강 y 6 머리 꼭대기, y 30 신발 바닥). 사람이 보는 용도
+ *   docs/character-hand-guide.png    왼손 자홍/오른손 청록 접점 (carry/sitCarry, 숨겨진 손 포함)
  *
  * 치수는 캐릭터_그래픽_프롬프트_8방향.md "치수 고정표"와 같다. 색은 부위 표시일 뿐이고 실제 그림 색이 아니다.
  *   보라 머리카락 / 살구 얼굴·목 / 검정 눈 / 파랑 몸통 / 하늘 팔 / 주황 손 / 초록 다리 / 진초록 신발 / 회색 그림자
@@ -14,6 +15,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Canvas, encodePng, hex, type RGBA } from "./lib/png";
+import { drawCarryArms } from "./lib/carry-arms";
+import { HAND_SIDES, handGrip } from "../packages/shared/src/hand-rig";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const FRAME = 32;
@@ -115,23 +118,7 @@ function drawUpper(f: Frame, view: View, top: number, torsoH: number, carry: boo
   if (view === "front" || view === "frontSide") f.rect(view === "front" ? 15 : 13, ty, 2, 2, C.face); // 깃 사이 목
 
   if (carry) {
-    // 두 팔을 앞으로 모음. 손 가운데 = 몸통 위 + 4 (서 있으면 y 23)
-    if (view === "side") {
-      f.rect(14, ty, 2, 3, C.arm);
-      f.rect(9, ty + 3, 4, 3, C.hand);
-    } else if (view === "front") {
-      f.rect(9, ty, 1, 3, C.arm);
-      f.rect(22, ty, 1, 3, C.arm);
-      f.rect(13, ty + 3, 7, 3, C.hand);
-    } else if (view === "frontSide") {
-      f.rect(9, ty, 1, 3, C.arm);
-      f.rect(10, ty + 3, 6, 3, C.hand);
-    } else {
-      // 뒷모습: 팔이 몸 앞에 있어 어깨만 보임
-      const [l, r] = view === "back" ? [9, 22] : [10, 22];
-      f.rect(l, ty, 1, 3, C.arm);
-      f.rect(r, ty, 1, 3, C.arm);
-    }
+    // Absolute, anatomical hand anchors are painted after the cell transform.
   } else if (view === "side") {
     f.rect(15 - swing, ty, 2, torsoH - 2, C.arm);
     f.rect(15 - swing, ty + torsoH - 2, 2, 2, C.hand);
@@ -223,9 +210,26 @@ const sheet = new Canvas(COLS * FRAME, rowCount * FRAME);
 let row = 0;
 for (const { pose, dirs } of ROWS)
   for (const dir of dirs) {
-    for (let col = 0; col < COLS; col++) drawCell(new Frame(sheet, col * FRAME, row * FRAME, transformOf(pose, dir)), pose, dir, col);
+    for (let col = 0; col < COLS; col++) {
+      drawCell(new Frame(sheet, col * FRAME, row * FRAME, transformOf(pose, dir)), pose, dir, col);
+      if (pose === "carry" || pose === "sitCarry")
+        drawCarryArms(sheet, col * FRAME, row * FRAME, dir, pose === "sitCarry", col, C.arm, C.hand, 19);
+    }
     row++;
   }
+
+// Attachment guide: left magenta, right cyan; includes hidden palms in back views.
+const hands = new Canvas(sheet.width, sheet.height);
+for (let r = 8; r < 24; r++) {
+  if (r >= 16 && r < 20) continue;
+  const seated = r >= 20;
+  const dir = seated ? DIRS_4[r - 20]! : DIRS_8[r - 8]!;
+  for (let col = 0; col < COLS; col++) for (const side of HAND_SIDES) {
+    const g = handGrip(dir, side, seated, col);
+    const color = hex(side === "left" ? "#ff40cc" : "#20d8ff");
+    hands.set(col * FRAME + g.x, r * FRAME + g.y, color);
+  }
+}
 
 // 확대본: 흰 바탕 + 셀 격자 + 기준선
 const S = 4;
@@ -249,6 +253,7 @@ for (let r = 0; r < rowCount; r++) {
 
 for (const [name, canvas] of [
   ["docs/character-size-guide.png", sheet],
+  ["docs/character-hand-guide.png", hands],
   ["docs/character-size-guide-x4.png", big],
 ] as const) {
   const out = resolve(ROOT, name);

@@ -13,11 +13,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { HAND_RIG } from "../packages/shared/src/hand-rig";
 import { EAT_STAGES, MENU, TRUCKS } from "../packages/shared/src/food";
 import { Canvas, encodePng, hex, type RGBA } from "./lib/png";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const FOOD = 12;
+const FOOD = HAND_RIG.foodFrame.width;
+// Every stage keeps its grip at HAND_RIG.foodGrip (6,9); never trim/recenter frames.
 const TRUCK_W = 96;
 const TRUCK_H = 80;
 

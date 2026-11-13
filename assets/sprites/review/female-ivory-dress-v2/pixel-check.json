@@ -1,0 +1,19 @@
+{
+  "format": "RGBA8",
+  "dimensions": [
+    128,
+    896
+  ],
+  "cellsPerLayer": 112,
+  "visibleGrips": 64,
+  "paletteColors": 22,
+  "transparentPixels": 191578,
+  "shadowPixels": 2352,
+  "headOutfitOverlap": 0,
+  "carryBodyMatchesNormal": true,
+  "neutralColumnsMatch": true,
+  "preservedArmPixels": 1512,
+  "coveredLegPixels": 1280,
+  "bodyMatchesDeployed": true,
+  "shoesPreserved": true
+}

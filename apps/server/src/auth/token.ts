@@ -2,7 +2,7 @@
 // 서버에 상태를 두지 않으므로 서버를 재시작해도, 나중에 서버를 여러 대로 늘려도(같은 키) 그대로 검증된다.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { isValidAppearance, type AuthUser } from "@park/shared";
+import { readAppearance, type AuthUser } from "@park/shared";
 import { config } from "../config";
 
 interface Payload extends AuthUser {
@@ -39,7 +39,8 @@ export function verifyToken(token: unknown, nowMs = Date.now()): AuthUser | null
   const { userId, nickname, exp } = p;
   if (typeof exp !== "number" || exp * 1000 <= nowMs) return null;
   if (typeof userId !== "number" || typeof nickname !== "string") return null;
-  const appearance = { gender: p.gender, outfit: p.outfit };
-  if (!isValidAppearance(appearance)) return null;
-  return { userId, nickname, gender: appearance.gender, outfit: appearance.outfit };
+  // 얼굴 선택 전에 발급한 토큰(face 없음)은 옷에 맞는 얼굴로
+  const appearance = readAppearance(p);
+  if (!appearance) return null;
+  return { userId, nickname, ...appearance };
 }

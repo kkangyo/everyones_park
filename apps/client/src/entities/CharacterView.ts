@@ -1,43 +1,49 @@
+import { artHandOffset } from "../characterArt";
 import Phaser from "phaser";
-import { MENU, bodyIdOf, straightFacing, type Appearance, type Facing, type MenuKind, type Vec2 } from "@park/shared";
-import { BODY_HAND_DY, CHARACTER, DEPTH, GENERATED, bodyHead, bodySheet, foodSheet, idleFrame, outfitSheet, poseAnimKey, type Pose } from "../assets";
+import { EMOTES, EMOTE_SHOW_MS, MENU, type EmoteAction, handDrawOrder, isHandSide, bodyIdOf, straightFacing, type Appearance, type Facing, type MenuKind, type Vec2 } from "@park/shared";
+import { CHARACTER, FOOD, DEPTH, EMOTE_SHEET, GENERATED, bodyHead, bodySheet, foodSheet, idleFrame, outfitSheet, poseAnimKey, type Pose } from "../assets";
 import { t, type MessageKey } from "../i18n";
 import { smoothText } from "../ui/text";
 
 const NAMEPLATE_OFFSET_Y = -34;
 const BUBBLE_OFFSET_Y = -46;
+/** 이모티콘 말풍선이 튀어나오는 시간, 사라지는 시간 (ms) */
+const EMOTE_POP_MS = 140;
+const EMOTE_FADE_MS = 300;
+
+/**
+ * 이모티콘 동작 (5-5). 그림 없이 코드로: 캐릭터 그림 전체를 잠깐 옮기거나(jump·shiver) 장갑을 흔든다(wave).
+ * 발밑 위치(앞뒤 순서·이름표)는 그대로 두고 그림만 움직인다
+ */
+const ACTION_MS: Record<EmoteAction, number> = { wave: 1600, jump: 760, shiver: 1500 };
+/** 폴짝 한 번 시간, 높이 (px) */
+const HOP_MS = 380;
+const HOP_PX = 5;
+/** 떨기: 이 간격(ms)마다 1px 씩 좌우 */
+const SHIVER_STEP_MS = 70;
+/** 손 흔들기: 이 간격마다 장갑이 좌우로 2px */
+const WAVE_STEP_MS = 160;
+/** 흔드는 장갑 위치 (발밑 기준, 보는 방향의 오른쪽 어깨 위). 앉아 있으면 sitDrop 만큼 내린다 */
+const WAVE_HAND = { x: 9, y: -21 } as const;
 
 /** 손에 든 간식 하나 (서버 HeldFoodView 중 그림에 필요한 것) */
 export interface HeldFood {
   item: string;
+  /** Anatomical left/right, persisted by the server. */
+  hand: string;
   stage: number;
   /** 먹는 중 (4-6). 이 간식으로 먹는 연출을 한다 */
   eating: boolean;
 }
 
-/**
- * 간식을 그리는 손 위치 (발밑 기준 px). [한 개일 때, 두 개일 때 각각].
- * 위쪽(up, up-left, up-right)을 보면 몸 뒤에 가려지도록 몸보다 먼저 그린다.
- */
-const HAND_OFFSETS: Record<Facing, { one: Vec2[]; two: Vec2[] }> = {
-  down: { one: [{ x: 0, y: -12 }], two: [{ x: -5, y: -12 }, { x: 5, y: -12 }] },
-  up: { one: [{ x: 0, y: -14 }], two: [{ x: -5, y: -14 }, { x: 5, y: -14 }] },
-  left: { one: [{ x: -6, y: -12 }], two: [{ x: -7, y: -13 }, { x: -3, y: -11 }] },
-  right: { one: [{ x: 6, y: -12 }], two: [{ x: 7, y: -13 }, { x: 3, y: -11 }] },
-  "down-left": { one: [{ x: -4, y: -12 }], two: [{ x: -6, y: -12 }, { x: 1, y: -12 }] },
-  "down-right": { one: [{ x: 4, y: -12 }], two: [{ x: 6, y: -12 }, { x: -1, y: -12 }] },
-  "up-left": { one: [{ x: -3, y: -14 }], two: [{ x: -6, y: -14 }, { x: 2, y: -15 }] },
-  "up-right": { one: [{ x: 3, y: -14 }], two: [{ x: 6, y: -14 }, { x: -2, y: -15 }] },
-};
-
 /** 몸이 간식을 가리는 방향 (위쪽을 볼 때) */
 const FOOD_BEHIND: ReadonlySet<Facing> = new Set(["up", "up-left", "up-right"]);
 
 /**
- * 먹는 연출 한 입 (ms): 입으로 올리기 → 입에 대고 있기 → 내리기 → 쉬기. 메뉴 kind 마다 다르다.
- *   food : 빠르게 올려 씹으며 고개를 끄덕인다 ('냠')
- *   drink: 컵을 천천히 올려 홀짝이고 천천히 내린다, 고개는 끄덕이지 않음 ('호로록')
- * 그림 없이 코드로: 간식 위치를 옮기고, 머리만 간식 쪽 방향 그림으로 바꿔 끼운다
+ * 먹는 연출 한 입 (ms): 고개 돌리기 → 먹기/마시기 → 돌아오기 → 쉬기.
+ *   food : 빠르게 돌아보고 씹으며 고개를 끄덕인다 ('냠')
+ *   drink: 컵 쪽을 천천히 돌아보고 홀짝인다, 고개는 끄덕이지 않음 ('호로록')
+ * 손·음식은 hand-rig의 고정 부착점 유지. 고개 돌리기·끄덕임·말풍선으로 먹기를 표현한다
  */
 const BITES: Record<MenuKind, { raise: number; hold: number; lower: number; rest: number; nod: boolean; text: MessageKey }> = {
   food: { raise: 350, hold: 960, lower: 350, rest: 900, nod: true, text: "eat.bite" },
@@ -46,12 +52,10 @@ const BITES: Record<MenuKind, { raise: number; hold: number; lower: number; rest
 const cycleOf = (b: (typeof BITES)[MenuKind]) => b.raise + b.hold + b.lower + b.rest;
 /** 씹을 때 고개를 한 번 내렸다 올리는 간격 */
 const NOD_MS = 160;
-/** 간식이 이만큼 올라오면 고개를 간식 쪽으로 돌린다 (0~1) */
+/** 한 입 진행도에 따라 고개를 간식 쪽으로 돌린다 (0~1). 음식 위치와 무관 */
 const TURN_AT = 0.25;
-/** 방향별 얼굴 가운데 x (발밑 기준). 간식을 입 앞으로 가져갈 때 쓴다 */
+/** 방향별 얼굴 가운데 x (발밑 기준). 말풍선 위치에만 사용한다 */
 const FACE_X: Record<Facing, number> = { down: 0, up: 0, left: -5, right: 5, "down-left": -2, "down-right": 2, "up-left": -1, "up-right": 1 };
-/** 입 앞에서 간식이 얼굴 가운데에서 비켜나는 거리 (간식이 있는 손 쪽으로) */
-const BITE_SIDE_PX = 6;
 
 /**
  * 간식이 있는 쪽(side: 화면 왼쪽 -1, 오른쪽 +1)으로 고개를 돌린 방향.
@@ -85,6 +89,14 @@ export class CharacterView {
   private readonly foods: Phaser.GameObjects.Image[] = [];
   private readonly nameplate: Phaser.GameObjects.Text;
   private bubble?: { text: Phaser.GameObjects.Text; timer: Phaser.Time.TimerEvent };
+  /** 머리 위 이모티콘 (5-4). 글자 말풍선과 같은 자리라서 하나만 띄운다 */
+  private emote?: { image: Phaser.GameObjects.Image; timer: Phaser.Time.TimerEvent };
+  /** 지금 하는 이모티콘 동작 (5-5) */
+  private action?: { kind: EmoteAction; startedAt: number };
+  /** 손 흔들기 장갑 (처음 필요할 때 만든다) */
+  private mitten?: Phaser.GameObjects.Image;
+  /** 발밑 위치. 동작 중에는 그림(root)만 여기서 조금 벗어난다 */
+  private ground: Vec2;
   private appearance: Appearance;
   private hands: readonly HeldFood[] = [];
   private facing: Facing = "down";
@@ -105,12 +117,14 @@ export class CharacterView {
     appearance: Appearance,
   ) {
     this.appearance = appearance;
+    this.ground = { ...pos };
     this.body = scene.add.sprite(0, 0, bodySheet(bodyIdOf(appearance)).key, idleFrame(this.facing)).setOrigin(0.5, 1);
     this.head = scene.add.sprite(0, 0, bodySheet(bodyIdOf(appearance)).key, idleFrame(this.facing)).setOrigin(0.5, 1).setVisible(false);
     this.outfit = scene.add.sprite(0, 0, outfitSheet(appearance.outfit).key, idleFrame(this.facing)).setOrigin(0.5, 1);
-    this.root = scene.add.container(pos.x, pos.y, [this.body, this.head, this.outfit]);
+    for (const layer of [this.body, this.head, this.outfit]) layer.setScale(1 / CHARACTER.pixelRatio);
+    this.root = scene.add.container(pos.x, pos.y, [this.body, this.head, this.outfit]).setScale(CHARACTER.worldScale);
     this.nameplate = smoothText(
-      scene.add.text(pos.x, pos.y + NAMEPLATE_OFFSET_Y, nickname, {
+      scene.add.text(pos.x, pos.y + NAMEPLATE_OFFSET_Y * CHARACTER.worldScale, nickname, {
         fontSize: "9px",
         color: "#ffffff",
         stroke: "#1b2433",
@@ -121,7 +135,7 @@ export class CharacterView {
   }
 
   get position(): Vec2 {
-    return { x: this.root.x, y: this.root.y };
+    return { ...this.ground };
   }
 
   /** 캐릭터를 누르면 onTap (내 캐릭터: 손에 든 간식 말풍선). 그 위치의 땅 클릭 이동은 일어나지 않는다 */
@@ -130,7 +144,7 @@ export class CharacterView {
   }
 
   setPose(pos: Vec2, facing: Facing, moving: boolean, seated = false): void {
-    this.root.setPosition(pos.x, pos.y);
+    this.ground = { ...pos };
     this.facing = facing;
     this.moving = moving;
     this.seated = seated;
@@ -139,7 +153,7 @@ export class CharacterView {
 
   /** 옷·성별이 바뀌면 그림을 바꾼다 (같으면 아무것도 안 함) */
   setAppearance(appearance: Appearance): void {
-    if (appearance.gender === this.appearance.gender && appearance.outfit === this.appearance.outfit) return;
+    if (appearance.gender === this.appearance.gender && appearance.face === this.appearance.face && appearance.outfit === this.appearance.outfit) return;
     this.appearance = appearance;
     this.body.anims.stop();
     this.body.setTexture(bodySheet(bodyIdOf(appearance)).key);
@@ -150,24 +164,26 @@ export class CharacterView {
 
   /** 손에 든 간식. 바뀌었을 때만 그림을 다시 만든다 (매 프레임 불러도 됨) */
   setHands(hands: readonly HeldFood[]): void {
-    const same = (h: HeldFood, i: number) => h.item === this.hands[i]!.item && h.stage === this.hands[i]!.stage && h.eating === this.hands[i]!.eating;
+    const same = (h: HeldFood, i: number) => h.item === this.hands[i]!.item && h.stage === this.hands[i]!.stage && h.hand === this.hands[i]!.hand && h.eating === this.hands[i]!.eating;
     if (hands.length === this.hands.length && hands.every(same)) return;
-    this.hands = hands.map((h) => ({ item: h.item, stage: h.stage, eating: h.eating }));
+    this.hands = hands.map((h) => ({ item: h.item, hand: h.hand, stage: h.stage, eating: h.eating }));
     for (const f of this.foods) f.destroy();
     this.foods.length = 0;
     for (const h of this.hands) {
-      const food = this.scene.add.image(0, 0, foodSheet(h.item).key, h.stage);
+      const food = this.scene.add.image(0, 0, foodSheet(h.item).key, h.stage)
+        .setOrigin(FOOD.grip.x / FOOD.frameWidth, FOOD.grip.y / FOOD.frameHeight);
       this.root.add(food);
       this.foods.push(food);
     }
     this.applyPose();
   }
 
-  /** 머리 위 말풍선 (몇 초 뒤 사라짐). 새로 띄우면 이전 것은 바로 지움 */
+  /** 머리 위 말풍선 (몇 초 뒤 사라짐). 새로 띄우면 이전 것(이모티콘 포함)은 바로 지움 */
   say(text: string, durationMs = 2500): void {
     this.clearBubble();
+    this.clearEmote();
     const bubble = smoothText(
-      this.scene.add.text(this.root.x, this.root.y + BUBBLE_OFFSET_Y, text, {
+      this.scene.add.text(this.ground.x, this.ground.y + BUBBLE_OFFSET_Y * CHARACTER.worldScale, text, {
         fontSize: "9px",
         color: "#1b2433",
         backgroundColor: "#ffffff",
@@ -179,10 +195,38 @@ export class CharacterView {
     this.bubble = { text: bubble, timer: this.scene.time.delayedCall(durationMs, () => this.clearBubble()) };
   }
 
+  /**
+   * 머리 위 이모티콘 말풍선 (5-4). durationMs: 남은 표시 시간 (늦게 받았으면 그만큼 짧게).
+   * 처음부터 띄울 때만 톡 튀어나오고, 끝날 때 흐려지며 사라진다
+   */
+  showEmote(id: string, durationMs = EMOTE_SHOW_MS): void {
+    const frame = EMOTES.findIndex((e) => e.id === id);
+    if (frame < 0 || durationMs <= 0) return;
+    this.clearBubble();
+    this.clearEmote();
+    const image = this.scene.add
+      .image(this.ground.x, this.ground.y + BUBBLE_OFFSET_Y * CHARACTER.worldScale, EMOTE_SHEET.key, frame)
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH.bubble);
+    if (durationMs > EMOTE_SHOW_MS - EMOTE_POP_MS) {
+      // 처음부터 보는 경우만 동작도 한다 (늦게 들어와서 지난 이모티콘을 받았으면 말풍선만)
+      const action = EMOTES[frame]!.action;
+      this.action = action ? { kind: action, startedAt: this.scene.time.now } : undefined;
+      image.setScale(0.5);
+      this.scene.tweens.add({ targets: image, scale: 1, duration: EMOTE_POP_MS, ease: "Back.easeOut" });
+    }
+    const timer = this.scene.time.delayedCall(Math.max(0, durationMs - EMOTE_FADE_MS), () => {
+      this.scene.tweens.add({ targets: image, alpha: 0, duration: Math.min(EMOTE_FADE_MS, durationMs), onComplete: () => this.clearEmote() });
+    });
+    this.emote = { image, timer };
+  }
+
   destroy(): void {
     this.clearBubble();
+    this.clearEmote();
     for (const pop of this.bitePops) pop.destroy();
     this.steam?.destroy();
+    this.mitten?.destroy();
     this.root.destroy();
     this.nameplate.destroy();
   }
@@ -194,12 +238,23 @@ export class CharacterView {
     this.bubble = undefined;
   }
 
+  private clearEmote(): void {
+    if (!this.emote) return;
+    this.emote.timer.remove();
+    this.scene.tweens.killTweensOf(this.emote.image);
+    this.emote.image.destroy();
+    this.emote = undefined;
+  }
+
   private applyPose(): void {
-    const { x, y } = this.root;
+    const { x, y } = this.ground;
+    const offset = this.actionOffset();
+    this.root.setPosition(x + offset.x, y + offset.y);
     // 발밑 y 가 클수록(화면 아래일수록) 앞에 그린다. 이름표는 다른 캐릭터·나무보다 위에
     this.root.setDepth(DEPTH.ysortBase + y);
-    this.nameplate.setPosition(x, y + NAMEPLATE_OFFSET_Y).setDepth(DEPTH.nameplate + y);
-    this.bubble?.text.setPosition(x, y + BUBBLE_OFFSET_Y);
+    this.nameplate.setPosition(x, y + NAMEPLATE_OFFSET_Y * CHARACTER.worldScale).setDepth(DEPTH.nameplate + y);
+    this.bubble?.text.setPosition(x, y + BUBBLE_OFFSET_Y * CHARACTER.worldScale);
+    this.emote?.image.setPosition(x, y + BUBBLE_OFFSET_Y * CHARACTER.worldScale);
 
     const holding = this.foods.length > 0;
     const pose: Pose = this.seated ? (holding ? "sitCarry" : "sit") : holding ? "carry" : "normal";
@@ -211,48 +266,95 @@ export class CharacterView {
     }
     this.outfit.setFrame(this.body.frame.name);
     this.placeFoods();
+    this.placeMitten();
   }
 
-  /** 간식을 손 위치에 (먹는 중인 간식은 한 입 동작에 따라 입 앞까지). 위쪽을 볼 때는 몸 뒤, 나머지는 몸 앞 */
+  /** 지금 동작에 따른 그림 이동 (px). 동작이 끝났으면 지운다 */
+  private actionOffset(): Vec2 {
+    if (!this.action) return { x: 0, y: 0 };
+    const elapsed = this.scene.time.now - this.action.startedAt;
+    if (elapsed >= ACTION_MS[this.action.kind]) {
+      this.action = undefined;
+      return { x: 0, y: 0 };
+    }
+    switch (this.action.kind) {
+      case "jump":
+        // 앉아 있으면 폴짝 뛰지 않는다 (말풍선만)
+        return this.seated ? { x: 0, y: 0 } : { x: 0, y: -Math.round(HOP_PX * Math.sin((Math.PI * (elapsed % HOP_MS)) / HOP_MS)) };
+      case "shiver":
+        return { x: Math.floor(elapsed / SHIVER_STEP_MS) % 2 === 0 ? -1 : 1, y: 0 };
+      case "wave":
+        return { x: 0, y: 0 };
+    }
+  }
+
+  /**
+   * 손 흔들기: 보는 방향의 오른쪽(화면 기준) 어깨 위에서 장갑을 좌우로 흔든다.
+   * 왼쪽을 보면 왼쪽 위. 뒷모습이면 몸 뒤가 아니라 머리 옆에 보이게 맨 앞에 그린다
+   */
+  private placeMitten(): void {
+    const waving = this.action?.kind === "wave";
+    if (!waving) {
+      this.mitten?.setVisible(false);
+      return;
+    }
+    if (!this.mitten) {
+      this.mitten = this.scene.add.image(0, 0, GENERATED.mitten).setOrigin(0.5, 1);
+      this.root.add(this.mitten);
+    }
+    const side = this.facing.includes("left") ? -1 : 1;
+    const elapsed = this.scene.time.now - this.action!.startedAt;
+    const swing = Math.floor(elapsed / WAVE_STEP_MS) % 2 === 0 ? 0 : 2;
+    const drop = this.seated ? CHARACTER.sitDrop : 0;
+    this.mitten
+      .setPosition(side * (WAVE_HAND.x + swing), WAVE_HAND.y + drop)
+      .setFlipX(side < 0)
+      .setVisible(true);
+    this.root.bringToTop(this.mitten);
+  }
+
+  /** 음식의 (6,9) 잡는 지점을 해당 손에 고정한다. 먹기 단계·음식 개수로 이동하지 않는다. */
   private placeFoods(): void {
     // 앉으면 4방향 그림이라 손 위치도 상하좌우 것을 쓰고, 내려간 상체만큼 내린다
     const facing = this.seated ? straightFacing(this.facing) : this.facing;
-    const offsets = HAND_OFFSETS[facing][this.foods.length === 1 ? "one" : "two"];
     const bodyId = bodyIdOf(this.appearance);
     // 몸이 1px 올라가는 프레임(1, 3번: 걷기·숨 들이쉬기)에 맞춰 같이 올림
     const lift = Number(this.body.frame.name) % 2 === 1 ? -1 : 0;
     const drop = this.seated ? CHARACTER.sitDrop : 0;
-    const handDy = lift + drop + (BODY_HAND_DY[bodyId] ?? 0);
 
     const eatingIndex = this.hands.findIndex((h) => h.eating);
     const eatingItem = eatingIndex >= 0 && this.foods[eatingIndex] ? MENU.get(this.hands[eatingIndex]!.item) : undefined;
     const style = BITES[eatingItem?.kind ?? "food"];
     const bite = eatingItem ? this.bitePhase(style) : null;
-    // 간식이 있는 쪽 (화면 기준). 한 손이면 보는 방향 쪽, 정면이면 오른쪽
-    const hand = eatingIndex >= 0 ? offsets[eatingIndex] : undefined;
+    // 서버에 고정된 손의 부착점으로 먹는 쪽을 정한다 (음식 개수와 무관).
+    const heldHand = this.hands[eatingIndex]?.hand;
+    const hand = heldHand && isHandSide(heldHand) ? artHandOffset(bodyId, facing, heldHand, this.seated, Number(this.body.frame.name) % 4) : undefined;
     const side = hand ? Math.sign(hand.x) || Math.sign(FACE_X[facing]) || 1 : 0;
     const turn = bite && bite.k >= TURN_AT ? turnToward(facing, side) : facing;
     this.turnHead(bite ? turn : null, bite?.nod ?? 0, lift, drop);
 
-    this.foods.forEach((food, i) => {
-      const o = offsets[i]!;
-      let x = o.x;
-      let y = o.y + handDy;
-      if (i === eatingIndex && bite) {
-        // 손 → 입 앞 (고개를 돌린 얼굴 쪽)
-        const mouthX = FACE_X[turn] + side * BITE_SIDE_PX;
-        const mouthY = bodyHead(bodyId).biteY + lift + drop + bite.nod;
-        x = Math.round(x + (mouthX - x) * bite.k);
-        y = Math.round(y + (mouthY - y) * bite.k);
-        if (bite.biteNo !== this.lastBite && bite.atMouth) {
-          this.lastBite = bite.biteNo;
-          this.popBite(mouthX + side * 7, mouthY - 6, style.text);
-        }
+    const column = Number(this.body.frame.name) % CHARACTER.framesPerRow;
+    // Establish an explicit far-to-near order, independent of purchase/array order.
+    const order = handDrawOrder(facing);
+    const indices = this.foods.map((_, i) => i).sort((a, b) =>
+      order.indexOf(this.hands[a]!.hand as "left" | "right") - order.indexOf(this.hands[b]!.hand as "left" | "right"));
+    for (const i of indices) {
+      const food = this.foods[i]!;
+      const hand = this.hands[i]!.hand;
+      food.setVisible(isHandSide(hand));
+      if (!isHandSide(hand)) continue;
+      const grip = artHandOffset(bodyId, facing, hand, this.seated, column);
+      food.setPosition(grip.x, grip.y);
+      if (i === eatingIndex && bite && bite.biteNo !== this.lastBite && bite.atMouth) {
+        this.lastBite = bite.biteNo;
+        this.popBite(FACE_X[turn] + side * 7, bodyHead(bodyId).biteY + lift + drop - 6, style.text);
       }
-      food.setPosition(x, y);
-      if (FOOD_BEHIND.has(this.facing)) this.root.sendToBack(food);
-      else this.root.bringToTop(food);
-    });
+      this.root.bringToTop(food);
+    }
+    // Move the whole ordered food group behind the body for back views.
+    if (FOOD_BEHIND.has(facing)) {
+      for (const i of [...indices].reverse()) this.root.sendToBack(this.foods[i]!);
+    }
     this.updateSteam(eatingItem?.hot ? this.foods[eatingIndex] : undefined);
   }
 
@@ -274,13 +376,13 @@ export class CharacterView {
         emitting: false,
       });
     }
-    // 간식 그림 윗부분에서. 캐릭터 바로 앞에 그린다
-    this.steam.setPosition(this.root.x + food.x, this.root.y + food.y - 5).setDepth(this.root.depth + 0.5);
+    // 음식의 origin은 잡는 지점 (6,9)이므로 프레임 위쪽 y=0에서 김이 난다
+    this.steam.setPosition(this.root.x + food.x * CHARACTER.worldScale, this.root.y + (food.y - FOOD.grip.y) * CHARACTER.worldScale).setDepth(this.root.depth + 0.5);
     if (!this.steam.emitting) this.steam.start();
   }
 
   /**
-   * 지금 한 입의 어디쯤인지. k: 간식이 입으로 올라온 정도 (0 손 ~ 1 입),
+   * 지금 한 입의 어디쯤인지. k: 고개를 돌려 먹는 연출의 진행도 (0~1),
    * atMouth: 입에 대고 있는 동안, nod: 씹으며 고개를 내린 px (음료는 0)
    */
   private bitePhase(b: (typeof BITES)[MenuKind]): { k: number; nod: number; atMouth: boolean; biteNo: number } {
@@ -313,15 +415,15 @@ export class CharacterView {
     const col = Number(this.body.frame.name) % CHARACTER.framesPerRow;
     // 서 있는 그림의 1·3열은 이미 1px 올라가 있다 (lift 는 그 열의 값). 앉기는 숨쉬기 1·3열이 같은 1px
     this.head.setFrame(idleFrame(turn, "normal") + col);
-    this.head.setCrop(0, 0, CHARACTER.frameWidth, headBottom + 1 + lift);
+    this.head.setCrop(0, 0, CHARACTER.frameWidth, (headBottom + 1 + lift) * CHARACTER.pixelRatio);
     this.head.setPosition(0, drop + nod).setVisible(true);
-    this.body.setCrop(0, headBottom + 1 + lift + drop, CHARACTER.frameWidth, CHARACTER.frameHeight);
+    this.body.setCrop(0, (headBottom + 1 + lift + drop) * CHARACTER.pixelRatio, CHARACTER.frameWidth, CHARACTER.frameHeight);
   }
 
   /** 한 입 먹을 때 입 옆에 '냠'·'호로록'이 떠올랐다 사라진다 */
   private popBite(dx: number, dy: number, key: MessageKey): void {
     const pop = smoothText(
-      this.scene.add.text(this.root.x + dx, this.root.y + dy, t(key), {
+      this.scene.add.text(this.root.x + dx * CHARACTER.worldScale, this.root.y + dy * CHARACTER.worldScale, t(key), {
         fontSize: "7px",
         color: "#ffffff",
         stroke: "#1b2433",

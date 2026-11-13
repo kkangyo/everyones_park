@@ -1,10 +1,15 @@
 import { TICK_MS, type Facing, type Vec2 } from "@park/shared";
 
-export interface Snapshot {
+/** 보간할 수 있는 상태: 서버 시간 + 위치. 나머지 값은 앞쪽(나중) 스냅샷 것을 그대로 쓴다 */
+export interface TimedPos {
   /** 서버 시간 (ms) = 서버 틱 번호 * TICK_MS */
   t: number;
   x: number;
   y: number;
+}
+
+/** 다른 사람 한 명의 상태 */
+export interface Snapshot extends TimedPos {
   facing: Facing;
   moving: boolean;
   /** 자리에 앉아 있음 (5-2) */
@@ -16,15 +21,18 @@ const TELEPORT_PX = 96;
 const MAX_SNAPSHOTS = 30;
 
 /**
- * 다른 사람 위치 보간 (2-4).
+ * 다른 사람·동물 위치 보간 (2-4, 5A-2).
  * 받은 위치를 **서버 시간**과 함께 쌓아 두고, 그려야 할 시점의 위치를 앞뒤 두 개 사이에서 계산한다.
  * 받은 시각이 아니라 서버 틱 시각을 쓰므로 네트워크가 흔들려도 일정한 속도로 보인다.
  * Phaser 를 쓰지 않는 순수 로직.
  */
-export class SnapshotBuffer {
-  private snaps: Snapshot[] = [];
+export class SnapshotBuffer<S extends TimedPos = Snapshot> {
+  private snaps: S[] = [];
 
-  push(s: Snapshot): void {
+  /** atRest: 멈춰 있다가 다시 움직일 때 끼워 넣는 '멈춘 자리' 상태 (사람은 moving = false) */
+  constructor(private readonly atRest: (s: S) => S = (s) => ({ ...s, moving: false })) {}
+
+  push(s: S): void {
     const last = this.snaps[this.snaps.length - 1];
     if (last && s.t <= last.t) return; // 같은/이전 틱 (지연 흉내 등으로 순서가 섞인 경우)
     if (last && Math.hypot(s.x - last.x, s.y - last.y) > TELEPORT_PX) {
@@ -32,14 +40,14 @@ export class SnapshotBuffer {
     } else if (last && s.t - last.t > TICK_MS * 1.5) {
       // 한동안 멈춰 있다가 다시 움직이기 시작: 직전 틱에 멈춘 자리에 있었다고 기준점을 끼워 넣는다
       // (안 그러면 멈춰 있던 긴 시간 동안 천천히 미끄러져 온 것처럼 보간됨)
-      this.snaps.push({ ...last, t: s.t - TICK_MS, moving: false });
+      this.snaps.push({ ...this.atRest(last), t: s.t - TICK_MS });
     }
     this.snaps.push(s);
     while (this.snaps.length > MAX_SNAPSHOTS) this.snaps.shift();
   }
 
   /** t(서버 시간) 시점의 모습. 버퍼보다 늦으면 마지막 값 그대로 (앞질러 예측하지 않음) */
-  sample(t: number): Snapshot | null {
+  sample(t: number): S | null {
     const snaps = this.snaps;
     if (snaps.length === 0) return null;
     const first = snaps[0]!;
@@ -50,7 +58,7 @@ export class SnapshotBuffer {
       if (t >= a.t) {
         if (t >= b.t) return b;
         const k = (t - a.t) / (b.t - a.t);
-        return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, facing: b.facing, moving: b.moving, seated: b.seated };
+        return { ...b, t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
       }
     }
     return snaps[snaps.length - 1]!;

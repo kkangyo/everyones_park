@@ -1,0 +1,12 @@
+{
+  "emotes": [
+    { "id": "hello", "name": { "ko": "안녕" }, "action": "wave" },
+    { "id": "heart", "name": { "ko": "하트" } },
+    { "id": "haha", "name": { "ko": "하하" }, "action": "jump" },
+    { "id": "yummy", "name": { "ko": "맛있다" } },
+    { "id": "full", "name": { "ko": "배불러" } },
+    { "id": "cold", "name": { "ko": "추워" }, "action": "shiver" },
+    { "id": "thanks", "name": { "ko": "고마워" } },
+    { "id": "night", "name": { "ko": "잘자" } }
+  ]
+}

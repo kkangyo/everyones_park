@@ -2,10 +2,11 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import {
   API,
   DEFAULT_APPEARANCE,
+  FACES,
   OUTFITS,
   PIN_PATTERN,
   checkNicknameFormat,
-  isValidAppearance,
+  readAppearance,
   nicknameKey,
   normalizeNickname,
   type ApiError,
@@ -71,8 +72,8 @@ export function apiRouter(db: Database, limiter = new LoginLimiter()): Router {
       return sendError(res, 401, { error: "WRONG_PIN", remaining });
     }
     limiter.reset(`nick:${key}`);
-    if (appearance && (appearance.gender !== user.gender || appearance.outfit !== user.outfit)) {
-      await db.users.updateAppearance(user.id, appearance.gender, appearance.outfit);
+    if (appearance && (appearance.gender !== user.gender || appearance.face !== user.face || appearance.outfit !== user.outfit)) {
+      await db.users.updateAppearance(user.id, appearance);
       user = { ...user, ...appearance };
     }
     log.info(`login #${user.id} "${user.nickname}" from ${ip}`);
@@ -92,7 +93,7 @@ export function apiRouter(db: Database, limiter = new LoginLimiter()): Router {
 
     const a = input.appearance ?? DEFAULT_APPEARANCE;
     try {
-      const user = await db.users.create({ nickname, nicknameKey: key, pinHash: await hashPin(pin), gender: a.gender, outfit: a.outfit });
+      const user = await db.users.create({ nickname, nicknameKey: key, pinHash: await hashPin(pin), gender: a.gender, face: a.face, outfit: a.outfit });
       log.info(`user created #${user.id} "${nickname}" from ${clientIp(req)}`);
       sendLogin(res, user, true);
     } catch (err) {
@@ -148,10 +149,11 @@ function parseAccountBody(raw: unknown): AccountInput | ApiError {
   if (!PIN_PATTERN.test(body.pin)) return { error: "PIN_FORMAT" };
   const nickname = normalizeNickname(body.nickname);
   let appearance: Appearance | undefined;
-  if (body.gender !== undefined || body.outfit !== undefined) {
-    const a = { gender: body.gender, outfit: body.outfit };
-    if (!isValidAppearance(a)) return { error: "APPEARANCE_INVALID" };
-    appearance = { gender: a.gender, outfit: a.outfit };
+  if (body.gender !== undefined || body.face !== undefined || body.outfit !== undefined) {
+    // 얼굴을 보내지 않는 예전 클라이언트는 옷에 맞는 얼굴로
+    const a = readAppearance(body);
+    if (!a) return { error: "APPEARANCE_INVALID" };
+    appearance = a;
   }
   return { nickname, key: nicknameKey(nickname), pin: body.pin, appearance };
 }
@@ -163,8 +165,7 @@ function sendLogin(res: Response, user: User, created: boolean): void {
 }
 
 function toAuthUser(user: User): AuthUser {
-  // 저장된 옷이 나중에 목록에서 빠졌으면 그 성별의 기본 옷으로
-  const outfits = OUTFITS[user.gender];
-  const outfit = outfits.includes(user.outfit) ? user.outfit : outfits[0]!;
-  return { userId: user.id, nickname: user.nickname, gender: user.gender, outfit };
+  // 저장된 얼굴·옷이 나중에 목록에서 빠졌으면 그 성별의 기본값으로
+  const a = readAppearance(user) ?? { gender: user.gender, face: FACES[user.gender][0]!, outfit: OUTFITS[user.gender][0]! };
+  return { userId: user.id, nickname: user.nickname, gender: a.gender, face: a.face, outfit: a.outfit };
 }

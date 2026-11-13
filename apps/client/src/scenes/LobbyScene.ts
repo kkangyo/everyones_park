@@ -46,7 +46,7 @@ export class LobbyScene extends Phaser.Scene {
       const { nickname, pin, appearance } = values;
       const res = values.mode === "signup" ? await signup({ nickname, pin, ...appearance! }) : await login({ nickname, pin, ...appearance });
       signedUp = res.created;
-      saveProfile({ nickname: res.user.nickname, gender: res.user.gender, outfit: res.user.outfit });
+      saveProfile({ nickname: res.user.nickname, gender: res.user.gender, face: res.user.face, outfit: res.user.outfit });
       data = { room: await joinPark(res.token), user: res.user };
     } catch (err) {
       // 계정은 만들어졌는데 채널 접속만 실패: 다시 시도는 로그인으로 (가입을 또 누르면 '이미 있는 닉네임')

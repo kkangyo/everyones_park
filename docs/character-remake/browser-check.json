@@ -1,0 +1,18 @@
+{
+  "state": {
+    "active": true,
+    "newTextures": [
+      {
+        "id": "female-longhair",
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": "male-handsome",
+        "width": 64,
+        "height": 64
+      }
+    ]
+  },
+  "errors": []
+}

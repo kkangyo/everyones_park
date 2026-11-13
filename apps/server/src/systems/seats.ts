@@ -25,11 +25,15 @@ export class SeatSystem {
     return player.seatId !== "";
   }
 
-  /** 가까운 자리 중 빈 칸에 앉는다. 가까운 자리가 모두 차 있으면 SEAT_FULL */
-  sit(sessionId: string): void {
+  /**
+   * 가까운 자리 중 빈 칸에 앉는다. 가까운 자리가 모두 차 있으면 SEAT_FULL.
+   * seatId 가 있으면 (자리를 클릭해서 걸어온 경우, 5-3) 그 자리에만 앉는다
+   */
+  sit(sessionId: string, seatId?: string): void {
     const player = this.state.players.get(sessionId);
     if (!player || this.isSeated(player)) return;
-    const near = seatsInRange(player, [...this.seats.values()]);
+    let near = seatsInRange(player, [...this.seats.values()]);
+    if (seatId !== undefined) near = near.filter((seat) => seat.id === seatId);
     if (near.length === 0) return; // 클라이언트도 자리 근처에서만 보낸다
 
     for (const seat of near) {

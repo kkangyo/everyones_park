@@ -1,7 +1,7 @@
 // 저장소 인터페이스. 게임 코드는 이 타입만 보고, 실제 DB(SQLite → 나중에 PostgreSQL)는 모른다.
 // 메서드는 모두 Promise 를 돌려준다: SQLite 는 동기지만 PostgreSQL 로 바꿀 때 호출하는 쪽을 고치지 않게.
 
-import type { Gender } from "@park/shared";
+import type { Appearance, Gender } from "@park/shared";
 
 export interface User {
   id: number;
@@ -11,6 +11,8 @@ export interface User {
   nicknameKey: string;
   pinHash: string;
   gender: Gender;
+  /** 얼굴 (= 몸 그림 id) */
+  face: string;
   outfit: string;
   /** 생성 시각 (unix ms) */
   createdAt: number;
@@ -22,7 +24,7 @@ export interface UserRepo {
   findByNicknameKey(key: string): Promise<User | undefined>;
   /** 같은 nicknameKey 가 이미 있으면 NicknameTakenError */
   create(user: NewUser): Promise<User>;
-  updateAppearance(id: number, gender: Gender, outfit: string): Promise<void>;
+  updateAppearance(id: number, appearance: Appearance): Promise<void>;
 }
 
 export interface Database {

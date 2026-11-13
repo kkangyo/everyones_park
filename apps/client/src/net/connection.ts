@@ -1,5 +1,5 @@
 import { Callbacks, Client, type Room } from "@colyseus/sdk";
-import { COLYSEUS_PATH, ROOM_NAME, type ParkStateView, type PlayerView } from "@park/shared";
+import { COLYSEUS_PATH, ROOM_NAME, type AnimalView, type ParkStateView, type PlayerView } from "@park/shared";
 
 export type ParkRoom = Room<any, ParkStateView>;
 
@@ -19,8 +19,10 @@ export async function joinPark(token: string): Promise<ParkRoom> {
 export interface ParkStateCallbacks {
   listen(property: "tick", handler: (value: number, previous: number) => void): () => void;
   onAdd(collection: "players", handler: (player: PlayerView, sessionId: string) => void): () => void;
+  onAdd(collection: "animals", handler: (animal: AnimalView, id: string) => void): () => void;
   onRemove(collection: "players", handler: (player: PlayerView, sessionId: string) => void): () => void;
-  onChange(instance: PlayerView, handler: () => void): () => void;
+  onRemove(collection: "animals", handler: (animal: AnimalView, id: string) => void): () => void;
+  onChange(instance: PlayerView | AnimalView, handler: () => void): () => void;
 }
 
 export function stateCallbacks(room: ParkRoom): ParkStateCallbacks {

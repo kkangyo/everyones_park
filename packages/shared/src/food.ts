@@ -9,7 +9,7 @@ import type { Vec2 } from "./movement";
 /** 언어별 이름. 지금은 ko 만 있음 */
 export type LocalizedName = Record<string, string>;
 
-/** food: 한 입씩 먹기('냠', 고개 끄덕) / drink: 컵을 천천히 올려 마시기('호로록') */
+/** food: 한 입씩 먹기('냠', 고개 끄덕) / drink: 컵 쪽으로 고개를 돌려 마시기('호로록'). 손·음식 접점은 고정. */
 export const MENU_KINDS = ["food", "drink"] as const;
 export type MenuKind = (typeof MENU_KINDS)[number];
 

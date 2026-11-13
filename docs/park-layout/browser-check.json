@@ -1,0 +1,19 @@
+{
+  "runtime": {
+    "width": 144,
+    "height": 176,
+    "widthPx": 4608,
+    "heightPx": 5632,
+    "landmarks": 10,
+    "trucks": 8,
+    "seats": 22,
+    "gridLength": 25344,
+    "entrance": {
+      "x": 2128,
+      "y": 5328
+    }
+  },
+  "pageErrors": [],
+  "failedRequests": [],
+  "serverConnected": true
+}

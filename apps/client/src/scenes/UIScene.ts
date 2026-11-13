@@ -2,6 +2,8 @@ import Phaser from "phaser";
 import { DEBUG } from "../debug";
 import { t } from "../i18n";
 import { checkHealth, type ServerStatus } from "../net/health";
+import { EMOTE_BUTTON } from "../assets";
+import { EmotePalette } from "../ui/EmotePalette";
 import { TOAST_EVENT, type ActionState, type OrderStatus, type ParkScene } from "./ParkScene";
 
 const HEALTH_INTERVAL_MS = 3000;
@@ -10,7 +12,9 @@ const TOAST_MS = 3000;
 const EDGE = 12;
 const BUTTON_GAP = 8;
 
-type ActionId = "order" | "seat" | "eat";
+type ActionId = "order" | "seat" | "eat" | "pet";
+/** 스마일 버튼 확대 배율 (24px → 48px, 손가락으로 누르기 쉽게) */
+const EMOTE_BUTTON_SCALE = 2;
 
 const COLOR = { ok: "#2e9e47", bad: "#d64545", pending: "#5a6b7d" } as const;
 
@@ -31,6 +35,10 @@ export class UIScene extends Phaser.Scene {
   private helpText!: Phaser.GameObjects.Text;
   /** 터치 버튼 (오른쪽 아래). 할 수 있을 때만 보인다 */
   private actionButtons!: Record<ActionId, Phaser.GameObjects.Text>;
+  /** '이모티콘' 버튼으로 여는 고르기 판 */
+  private emotePalette!: EmotePalette;
+  /** 오른쪽 맨 아래 스마일 버튼. 누르면 이모티콘 고르기 판 */
+  private emoteButton!: Phaser.GameObjects.Image;
   private debugText?: Phaser.GameObjects.Text;
   private health: ServerStatus | "checking" = "checking";
 
@@ -74,7 +82,21 @@ export class UIScene extends Phaser.Scene {
       order: button(() => park.orderHere()).setText(t("action.order")),
       seat: button(() => park.toggleSeat()),
       eat: button(() => park.eat()).setText(t("action.eat")),
+      pet: button(() => park.petNearby()).setText(t("action.pet")),
     };
+
+    this.emoteButton = this.add
+      .image(0, 0, EMOTE_BUTTON.key)
+      .setOrigin(1, 1)
+      .setScale(EMOTE_BUTTON_SCALE)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => this.emotePalette.setVisible(!this.emotePalette.visible));
+    this.emotePalette = new EmotePalette(this, (id) => {
+      park.emote(id);
+      this.emotePalette.setVisible(false);
+    });
+    // 공원(땅·트럭 등)을 누르면 닫는다. 판이나 버튼을 누른 것은 공원까지 오지 않는다
+    park.input.on(Phaser.Input.Events.POINTER_DOWN, () => this.emotePalette.setVisible(false));
 
     park.events.on(TOAST_EVENT, this.showToast, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => park.events.off(TOAST_EVENT, this.showToast, this));
@@ -87,6 +109,7 @@ export class UIScene extends Phaser.Scene {
     this.updateOrder(park.orderStatus);
     const { width, height } = this.scale;
     this.updateActions(park.actions, width, height);
+    this.updateEmote(park.emoteCooldownSec);
     // 안내 문구는 터치 버튼 위에
     this.toastText.setPosition(width / 2, height - 72);
     this.helpText.setPosition(EDGE, height - EDGE);
@@ -116,17 +139,32 @@ export class UIScene extends Phaser.Scene {
     const b = this.actionButtons;
     b.order.setVisible(actions.order);
     b.eat.setVisible(actions.eat);
+    b.pet.setVisible(actions.pet);
     b.seat.setVisible(actions.seat !== null);
     if (actions.seat) {
       const label = t(actions.seat === "sit" ? "action.sit" : "action.stand");
       if (b.seat.text !== label) b.seat.setText(label);
     }
-    let right = width - EDGE;
-    for (const id of ["seat", "eat", "order"] as const) {
+    // 스마일 버튼이 항상 오른쪽 맨 아래, 나머지는 그 왼쪽에 (버튼 아랫변을 맞춤)
+    this.emoteButton.setPosition(width - EDGE, height - EDGE);
+    let right = width - EDGE - this.emoteButton.displayWidth - BUTTON_GAP;
+    for (const id of ["pet", "seat", "eat", "order"] as const) {
       if (!b[id].visible) continue;
       b[id].setPosition(right, height - EDGE);
       right -= b[id].width + BUTTON_GAP;
     }
+  }
+
+  /**
+   * 스마일 버튼·고르기 판: 쿨다운(3초) 중이면 흐리게.
+   * 판은 버튼 위, 오른쪽 끝을 맞춘다
+   */
+  private updateEmote(cooldownSec: number): void {
+    const button = this.emoteButton;
+    const ready = cooldownSec <= 0;
+    button.setAlpha(ready ? 1 : 0.5);
+    this.emotePalette.setReady(ready);
+    this.emotePalette.place(button.x, button.y - button.displayHeight - BUTTON_GAP);
   }
 
   private showToast(text: string): void {

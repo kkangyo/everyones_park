@@ -1,0 +1,11 @@
+Use case: precise-object-edit.
+Image 1 is the EDIT TARGET: a 1024x768 transparent pixel-art atlas of the SAME handsome black-haired man wearing a black blazer and black trousers, with 12 sprites arranged 4 columns by 3 rows, each cell 256x256 (native 32x32 pixels enlarged exactly 8x nearest neighbor).
+Image 2 is the same atlas with hand GRIP target markers (magenta anatomical left hand, cyan anatomical right hand). These markers specify contact points, NOT actual colors to paint.
+Repair ONLY the black blazer's arms and hands. Remove the old hands that were joined near the chest; reconstruct the black torso where those old hands were. Make two separate anatomically plausible arms with bent elbows, and place each palm's grip at the corresponding marker from Image 2. Palm width is 2-3 native pixels. Connect sleeves from shoulder to wrist. Keep ALL heads, hair, faces, necks, legs, shoes, body scale, camera, and exact cell placement unchanged. Keep original muted pixel palette and 8x pixel blocks, no smoothing or high resolution redrawing.
+Layout: top row down,left,right,up; middle row down-left,down-right,up-left,up-right; bottom row seated down,left,right,up. These are 12 distinct poses.
+For the back-facing cells (top row col4; middle row col3/4; bottom row col4), palms and most forearms are BEHIND torso and are hidden. Draw appropriate shoulders and elbows rather than visible skin hands over the back. For front and side views separate left/right hands, even on the same side of the body, using the exact markers. Preserve black blazer, lapels and subtle highlights and warm pale skin tone.
+Each cell's local native 32x32 grip coordinates:
+top row: down L(21,23) R(11,23); left L(12,24) R(10,22); right L(22,22) R(20,24); up L(11,21) R(21,21).
+middle: SW L(18,23) R(10,23); SE L(22,23) R(14,23); NW L(10,21) R(18,20); NE L(14,20) R(22,21).
+bottom: seated down L(21,26) R(11,26); seated left L(12,27) R(10,25); seated right L(22,25) R(20,27); seated up L(11,24) R(21,24).
+Return the same exact 1024x768 atlas composition on actual transparent background. No target markers, no text, no grid, no food, no held objects. Keep the subject's identity unchanged.

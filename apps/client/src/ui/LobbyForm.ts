@@ -1,8 +1,9 @@
 import type Phaser from "phaser";
 import {
+  FACES,
   GENDERS,
   NICKNAME_MAX_LENGTH,
-  OUTFITS,
+  outfitsFor,
   PIN_PATTERN,
   bodyIdOf,
   checkNicknameFormat,
@@ -11,7 +12,7 @@ import {
   type Gender,
 } from "@park/shared";
 import { CHARACTER, bodySheet, idleFrame, outfitSheet } from "../assets";
-import { t, type MessageKey } from "../i18n";
+import { t } from "../i18n";
 import { checkNickname, fetchRandomNickname } from "../net/api";
 import type { Profile } from "../profile";
 import "./lobby.css";
@@ -57,12 +58,13 @@ export class LobbyForm {
   private readonly error: HTMLElement;
   private readonly submit: HTMLButtonElement;
   private readonly genderBox: HTMLElement;
-  private readonly outfitBox: HTMLElement;
   private readonly preview: CanvasRenderingContext2D;
   private mode: LobbyMode;
   /** 로그인 모드에서 '캐릭터 바꾸기'를 열었는지 */
   private characterOpen = false;
   private gender: Gender;
+  /** 얼굴 = 몸 그림 id. 옷은 이 얼굴과 비율이 같은 것만 고를 수 있다 */
+  private face: string;
   private outfit: string;
   private busy = false;
   private previewTick = 0;
@@ -76,6 +78,7 @@ export class LobbyForm {
     private readonly onSubmit: (values: LobbyValues) => Promise<void>,
   ) {
     this.gender = initial.gender;
+    this.face = initial.face;
     this.outfit = initial.outfit;
     // 이 브라우저에서 들어간 적이 있으면 로그인, 아니면 가입부터
     this.mode = initial.nickname ? "login" : "signup";
@@ -112,7 +115,6 @@ export class LobbyForm {
         <canvas class="lobby-preview" width="${CHARACTER.frameWidth * PREVIEW_SCALE}" height="${CHARACTER.frameHeight * PREVIEW_SCALE}"></canvas>
         <div class="lobby-choices">
           <div class="lobby-gender" role="radiogroup"></div>
-          <div class="lobby-outfits" role="radiogroup"></div>
         </div>
       </div>
       <p class="lobby-error" role="alert"></p>
@@ -149,7 +151,6 @@ export class LobbyForm {
     this.error = $(".lobby-error");
     this.submit = $(".lobby-enter");
     this.genderBox = $(".lobby-gender");
-    this.outfitBox = $(".lobby-outfits");
     const canvas = $<HTMLCanvasElement>(".lobby-preview");
     this.preview = canvas.getContext("2d")!;
     this.preview.imageSmoothingEnabled = false;
@@ -225,20 +226,17 @@ export class LobbyForm {
         this.choiceButton(t(`character.gender.${g}`), g === this.gender, () => {
           if (g === this.gender) return;
           this.gender = g;
-          this.outfit = OUTFITS[g][0]!;
-          this.renderChoices();
-        }),
-      ),
-    );
-    this.outfitBox.replaceChildren(
-      ...OUTFITS[this.gender].map((o) =>
-        this.choiceButton(t(`character.outfit.${o}` as MessageKey), o === this.outfit, () => {
-          this.outfit = o;
+          this.face = FACES[g][0]!;
+          this.outfit = outfitsFor(g, this.face)[0]!;
           this.renderChoices();
         }),
       ),
     );
     this.drawPreview();
+  }
+
+  private get appearance(): Appearance {
+    return { gender: this.gender, face: this.face, outfit: this.outfit };
   }
 
   private choiceButton(label: string, selected: boolean, onClick: () => void): HTMLButtonElement {
@@ -259,7 +257,7 @@ export class LobbyForm {
     const frame = idleFrame(facing) + (tick % CHARACTER.framesPerRow);
     const ctx = this.preview;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    for (const key of [bodySheet(bodyIdOf({ gender: this.gender, outfit: this.outfit })).key, outfitSheet(this.outfit).key]) {
+    for (const key of [bodySheet(bodyIdOf(this.appearance)).key, outfitSheet(this.outfit).key]) {
       const f = this.textures.getFrame(key, frame);
       if (!f) continue;
       ctx.drawImage(f.source.image as CanvasImageSource, f.cutX, f.cutY, f.cutWidth, f.cutHeight, 0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -334,7 +332,7 @@ export class LobbyForm {
         mode: this.mode,
         nickname,
         pin,
-        appearance: sendAppearance ? { gender: this.gender, outfit: this.outfit } : undefined,
+        appearance: sendAppearance ? this.appearance : undefined,
       });
     } catch (err) {
       this.showError(err instanceof Error ? err.message : String(err));

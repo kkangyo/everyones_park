@@ -1,0 +1,56 @@
+[
+  {
+    "sex": "female",
+    "group": "walk",
+    "detectedRows": 8,
+    "source": [
+      887,
+      1774
+    ]
+  },
+  {
+    "sex": "female",
+    "group": "carry",
+    "detectedRows": 8,
+    "source": [
+      887,
+      1774
+    ]
+  },
+  {
+    "sex": "female",
+    "group": "rest",
+    "detectedRows": 12,
+    "source": [
+      1774,
+      887
+    ]
+  },
+  {
+    "sex": "male",
+    "group": "walk",
+    "detectedRows": 8,
+    "source": [
+      887,
+      1774
+    ]
+  },
+  {
+    "sex": "male",
+    "group": "carry",
+    "detectedRows": 8,
+    "source": [
+      887,
+      1774
+    ]
+  },
+  {
+    "sex": "male",
+    "group": "rest",
+    "detectedRows": 12,
+    "source": [
+      1774,
+      887
+    ]
+  }
+]

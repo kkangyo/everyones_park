@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { collisionGridFromTiled, seatsFromTiled, truckPlacementsFromTiled, type CollisionGrid, type Seat, type TruckPlacement, type Vec2 } from "@park/shared";
+import { animalsFromTiled, collisionGridFromTiled, seatsFromTiled, truckPlacementsFromTiled, type AnimalPlacement, type CollisionGrid, type Seat, type TruckPlacement, type Vec2 } from "@park/shared";
 import { config } from "./config";
 
 // 클라이언트(apps/client/src/assets.ts MAP)와 같은 파일·레이어 이름
@@ -10,6 +10,7 @@ const SPAWN_LAYER = "spawns";
 const ENTRANCE_SPAWN = "entrance";
 const TRUCK_LAYER = "trucks";
 const SEAT_LAYER = "seats";
+const ANIMAL_LAYER = "animals";
 
 export interface ParkMap {
   grid: CollisionGrid;
@@ -18,6 +19,7 @@ export interface ParkMap {
   entrance: Vec2;
   trucks: TruckPlacement[];
   seats: Seat[];
+  animals: AnimalPlacement[];
 }
 
 interface TiledMap {
@@ -46,5 +48,6 @@ export function loadParkMap(): ParkMap {
     entrance: { x: spawn.x, y: spawn.y },
     trucks: truckPlacementsFromTiled(raw, TRUCK_LAYER),
     seats: seatsFromTiled(raw, SEAT_LAYER),
+    animals: animalsFromTiled(raw, ANIMAL_LAYER, raw.tilewidth),
   };
 }
