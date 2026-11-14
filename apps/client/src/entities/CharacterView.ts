@@ -109,6 +109,10 @@ export class CharacterView {
   private readonly bitePops = new Set<Phaser.GameObjects.Text>();
   /** 뜨거운 것을 먹는 동안 컵·그릇에서 피어오르는 김 (처음 필요할 때 만든다) */
   private steam?: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** 내 화면에서 숨김 (6-6). 그림·이름표·말풍선 모두 안 보이고 누를 수도 없다 */
+  private hidden = false;
+  /** 닉네임 표시 설정 (6-5) */
+  private nameShown = true;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -138,9 +142,34 @@ export class CharacterView {
     return { ...this.ground };
   }
 
-  /** 캐릭터를 누르면 onTap (내 캐릭터: 손에 든 간식 말풍선). 그 위치의 땅 클릭 이동은 일어나지 않는다 */
-  enableTap(onTap: () => void): void {
+  /**
+   * 캐릭터를 누르면 onTap (내 캐릭터: 손에 든 간식 말풍선, 다른 사람: 숨기기 메뉴).
+   * pointer 는 누른 화면 위치. 그 위치의 땅 클릭 이동은 일어나지 않는다
+   */
+  enableTap(onTap: (pointer: Phaser.Input.Pointer) => void): void {
     this.body.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onTap);
+  }
+
+  /** 닉네임 표시 켜기·끄기 (6-5). 매 프레임 불러도 된다 */
+  setNameVisible(show: boolean): void {
+    if (show === this.nameShown) return;
+    this.nameShown = show;
+    this.nameplate.setVisible(show && !this.hidden);
+  }
+
+  /** 내 화면에서 숨기기·다시 보기 (6-6). 매 프레임 불러도 된다 */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    this.root.setVisible(!hidden);
+    this.nameplate.setVisible(this.nameShown && !hidden);
+    this.steam?.setVisible(!hidden);
+    if (this.body.input) this.body.input.enabled = !hidden;
+    if (!hidden) return;
+    this.clearBubble();
+    this.clearEmote();
+    for (const pop of this.bitePops) pop.destroy();
+    this.bitePops.clear();
   }
 
   setPose(pos: Vec2, facing: Facing, moving: boolean, seated = false): void {
@@ -180,6 +209,7 @@ export class CharacterView {
 
   /** 머리 위 말풍선 (몇 초 뒤 사라짐). 새로 띄우면 이전 것(이모티콘 포함)은 바로 지움 */
   say(text: string, durationMs = 2500): void {
+    if (this.hidden) return;
     this.clearBubble();
     this.clearEmote();
     const bubble = smoothText(
@@ -201,7 +231,7 @@ export class CharacterView {
    */
   showEmote(id: string, durationMs = EMOTE_SHOW_MS): void {
     const frame = EMOTES.findIndex((e) => e.id === id);
-    if (frame < 0 || durationMs <= 0) return;
+    if (frame < 0 || durationMs <= 0 || this.hidden) return;
     this.clearBubble();
     this.clearEmote();
     const image = this.scene.add
@@ -422,6 +452,7 @@ export class CharacterView {
 
   /** 한 입 먹을 때 입 옆에 '냠'·'호로록'이 떠올랐다 사라진다 */
   private popBite(dx: number, dy: number, key: MessageKey): void {
+    if (this.hidden) return;
     const pop = smoothText(
       this.scene.add.text(this.root.x + dx * CHARACTER.worldScale, this.root.y + dy * CHARACTER.worldScale, t(key), {
         fontSize: "7px",

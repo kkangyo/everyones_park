@@ -93,6 +93,8 @@ export const ParkState = schema(
     trucks: t.map(TruckState),
     /** 동물 id → 동물 (맵 animals 레이어) */
     animals: t.map(AnimalState),
+    /** 채널 번호 (1부터, 화면 표시용). 방 id 는 길고 읽기 어렵다 */
+    channel: t.uint16().default(0),
   },
   "ParkState",
 );

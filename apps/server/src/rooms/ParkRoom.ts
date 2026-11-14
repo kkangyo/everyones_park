@@ -61,8 +61,23 @@ type ParkClient = Client<{ auth: AuthUser }>;
  */
 const activeByUser = new Map<number, ParkClient>();
 
+/** 지금 쓰고 있는 채널 번호 (이 서버 프로세스 안). 새 채널은 비어 있는 가장 작은 번호를 받는다 */
+const usedChannelNumbers = new Set<number>();
+
+function takeChannelNumber(): number {
+  let n = 1;
+  while (usedChannelNumbers.has(n)) n++;
+  usedChannelNumbers.add(n);
+  return n;
+}
+
+/** 채널 목록(GET /api/channels)이 읽는 매치메이킹 정보 */
+export interface ParkRoomMetadata {
+  channel: number;
+}
+
 /** 공원 채널 하나. 정원이 차면 매치메이킹이 새 방(채널)을 만든다 */
-export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
+export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metadata: ParkRoomMetadata }> {
   state = new ParkState();
   private map!: ParkMap;
   private hands!: HandsSystem;
@@ -81,7 +96,9 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   onCreate(options: { map: ParkMap }): void {
     this.map = options.map;
     this.maxClients = config.maxClients;
-    log.info(`channel ${this.roomId} created (max ${this.maxClients})`);
+    this.state.channel = takeChannelNumber();
+    void this.setMetadata({ channel: this.state.channel });
+    log.info(`channel ${this.state.channel} (${this.roomId}) created (max ${this.maxClients})`);
 
     // 서버 권위 이동: 클라이언트는 입력만 보내고, 위치는 서버가 같은 step() 으로 계산한다.
     // 입력은 받는 즉시 처리하지 않고 대기열에 넣었다가 고정 틱마다 하나씩 처리한다.
@@ -180,7 +197,8 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient }> {
   }
 
   onDispose(): void {
-    log.info(`channel ${this.roomId} disposed (dropped inputs: ${this.droppedInputs})`);
+    usedChannelNumbers.delete(this.state.channel);
+    log.info(`channel ${this.state.channel} (${this.roomId}) disposed (dropped inputs: ${this.droppedInputs})`);
   }
 
   private queueInput(client: ParkClient, message: unknown): void {

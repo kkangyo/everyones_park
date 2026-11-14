@@ -160,6 +160,8 @@ export interface ParkStateView {
   trucks: Map<string, TruckView>;
   /** 동물 id → 동물 */
   animals: Map<string, AnimalView>;
+  /** 채널 번호 (1부터, 화면 표시용) */
+  channel: number;
 }
 
 // ---- HTTP API (계정) ----
@@ -173,7 +175,24 @@ export const API = {
   randomNickname: "/api/nickname/random",
   /** GET ?name=닉네임 → NicknameCheckResponse */
   checkNickname: "/api/nickname/check",
+  /** GET → ChannelListResponse (6-4) */
+  channels: "/api/channels",
 } as const;
+
+/** 채널 목록의 채널 하나 */
+export interface ChannelInfo {
+  /** 방 id (joinById 로 들어갈 때 씀) */
+  id: string;
+  /** 채널 번호 (1부터) */
+  channel: number;
+  players: number;
+  max: number;
+}
+
+export interface ChannelListResponse {
+  /** 채널 번호 순 */
+  channels: ChannelInfo[];
+}
 
 export interface LoginRequest {
   nickname: string;

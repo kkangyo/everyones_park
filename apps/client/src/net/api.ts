@@ -1,6 +1,8 @@
 import {
   API,
   type ApiError,
+  type ChannelInfo,
+  type ChannelListResponse,
   type ApiErrorCode,
   type LoginRequest,
   type LoginResponse,
@@ -48,6 +50,10 @@ export function signup(req: SignupRequest): Promise<LoginResponse> {
 
 export async function fetchRandomNickname(): Promise<string> {
   return (await request<RandomNicknameResponse>(API.randomNickname)).nickname;
+}
+
+export async function fetchChannels(): Promise<ChannelInfo[]> {
+  return (await request<ChannelListResponse>(API.channels)).channels;
 }
 
 export async function checkNickname(nickname: string, signal?: AbortSignal): Promise<NicknameCheckResponse> {

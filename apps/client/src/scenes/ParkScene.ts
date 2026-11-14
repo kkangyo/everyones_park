@@ -24,15 +24,17 @@ import {
   type Facing,
   type NoticeMessage,
   type Seat,
+  type TruckPlacement,
   type Vec2,
 } from "@park/shared";
 import { DEPTH, bodySheet, idleFrame } from "../assets";
 import { DEBUG, DEV_KEYS, LAG_MS } from "../debug";
 import { Player } from "../entities/Player";
 import { localized, t } from "../i18n";
+import { getSettings } from "../settings";
 import { KeyboardMove } from "../input/keyboard";
 import { PathFollower } from "../input/pathFollower";
-import type { ParkRoom } from "../net/connection";
+import { joinChannel, type ParkRoom } from "../net/connection";
 import { ParkSync, type NetInfo, type OwnServerState } from "../net/ParkSync";
 import { Prediction } from "../net/Prediction";
 import { buildParkMap } from "../world/parkMap";
@@ -60,11 +62,15 @@ const NUMBER_KEYS = ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIG
 
 /** 공원 씬 → UI 씬 이벤트: 잠깐 보여 줄 안내 문구 */
 export const TOAST_EVENT = "toast";
+/** 공원 씬 → UI 씬 이벤트: 다른 사람 캐릭터를 누름 (닉네임, 누른 포인터) → 숨기기 메뉴 (6-6) */
+export const PLAYER_MENU_EVENT = "playerMenu";
 
 /** 입장 화면(Lobby)이 로그인·채널 접속을 마치고 넘겨 주는 값 */
 export interface ParkSceneData {
   room: ParkRoom;
   user: AuthUser;
+  /** 입장 토큰. 다른 채널로 옮길 때 다시 쓴다 (6-4) */
+  token: string;
 }
 
 /** 탭이 멈췄다 돌아오는 등 프레임이 크게 밀려도 한 번에 이 이상의 틱은 몰아서 돌리지 않는다 */
@@ -115,6 +121,8 @@ export class ParkScene extends Phaser.Scene {
   private lastCorrectionPx = 0;
   private corrections = 0;
   private trucks!: TruckController;
+  /** 트럭 위치 (미니맵 표시용) */
+  truckPlacements: readonly TruckPlacement[] = [];
   private seats: Seat[] = [];
   /** 앉아 있는 동안 일어나기를 이미 요청했음 (서버 응답 전까지 다시 보내지 않음) */
   private standRequested = false;
@@ -133,6 +141,19 @@ export class ParkScene extends Phaser.Scene {
 
   init(data: ParkSceneData): void {
     this.entry = data;
+    // 채널을 옮기면 같은 씬 객체로 다시 시작하므로 이전 채널의 상태를 비운다
+    this.follower = new PathFollower();
+    this.prediction = new Prediction();
+    this.tickAccMs = 0;
+    this.collisionView = undefined;
+    this.ghost = undefined;
+    this.lastCorrectionPx = 0;
+    this.corrections = 0;
+    this.standRequested = false;
+    this.handMenu = undefined;
+    this.afterStand = undefined;
+    this.walkingToSeat = undefined;
+    this.walkingToAnimal = undefined;
   }
 
   create(): void {
@@ -143,6 +164,7 @@ export class ParkScene extends Phaser.Scene {
     this.obstacleLayer = park.obstacleLayer;
     this.grid = park.grid;
     this.seats = park.seats;
+    this.truckPlacements = park.trucks;
 
     const { room, user } = this.entry;
     // 실제 입장 위치는 서버가 정해서 첫 상태로 알려 준다 (onOwnServerState)
@@ -180,6 +202,9 @@ export class ParkScene extends Phaser.Scene {
     this.sync.onNotice = (notice) => this.onNotice(notice);
     this.sync.onOwnEmote = (id, remainingMs) => this.player.view.showEmote(id, remainingMs);
     this.sync.onAnimalTap = (id) => this.petAnimal(id);
+    this.sync.onPlayerTap = (nickname, pointer) => {
+      if (pointer.button === 0) this.events.emit(PLAYER_MENU_EVENT, nickname, pointer);
+    };
     this.sync.start();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sync.disconnect());
 
@@ -212,6 +237,31 @@ export class ParkScene extends Phaser.Scene {
     return this.sync.info;
   }
 
+  /** 내 캐릭터 위치 (미니맵 표시용, 예측 위치) */
+  get myPosition(): Vec2 {
+    return this.player.position;
+  }
+
+  /**
+   * 채널 목록에서 고른 채널로 옮긴다 (6-4). 새 채널에 먼저 들어간 뒤 공원·UI 씬을 다시 시작한다.
+   * 들어가지 못하면(꽉 참·없어진 채널·토큰 만료) 지금 채널에 그대로 있고 안내만 보여 준다.
+   * 이전 채널 연결은 서버가 같은 계정의 새 접속으로 보고 끊는다. 손에 든 간식·주문은 이전 채널에 남는다(없어짐)
+   */
+  async switchChannel(roomId: string): Promise<void> {
+    if (roomId === this.sync.info.roomId) return;
+    const { user, token } = this.entry;
+    let room: ParkRoom;
+    try {
+      room = await joinChannel(token, roomId);
+    } catch (err) {
+      console.warn("[net] 채널 옮기기 실패", err);
+      this.events.emit(TOAST_EVENT, t("channels.failed"));
+      return;
+    }
+    this.scene.restart({ room, user, token } satisfies ParkSceneData);
+    this.scene.get("UI").scene.restart();
+  }
+
   update(time: number, deltaMs: number): void {
     // 고정 틱: 서버와 같은 간격(TICK_MS)으로 입력을 읽고, 예측 이동하고, 서버로 보낸다
     this.tickAccMs = Math.min(this.tickAccMs + deltaMs, TICK_MS * MAX_TICKS_PER_FRAME);
@@ -234,6 +284,7 @@ export class ParkScene extends Phaser.Scene {
     // 화면: 내 캐릭터는 직전 틱~현재 틱 사이 보간, 다른 사람은 서버 상태를 약간 과거로 보간
     this.player.render(this.tickAccMs / TICK_MS);
     this.player.view.setHands(this.sync.me?.hands ?? []);
+    this.player.view.setNameVisible(getSettings().showNicknames);
     this.sync.render(time);
     this.trucks.update();
     this.updateHandMenu();

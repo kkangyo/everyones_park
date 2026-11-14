@@ -25,6 +25,7 @@ import {
   type PetMessage,
 } from "@park/shared";
 import { CatView } from "../entities/CatView";
+import { getSettings, isHidden } from "../settings";
 import { CharacterView } from "../entities/CharacterView";
 import { stateCallbacks, type ParkRoom } from "./connection";
 import { ServerClock, SnapshotBuffer, type TimedPos } from "./Interpolation";
@@ -38,6 +39,8 @@ export type LeaveReason = "duplicateLogin" | "disconnected";
 export interface NetInfo {
   status: NetStatus;
   roomId: string;
+  /** 채널 번호 (1부터). 첫 상태를 받기 전에는 0 */
+  channel: number;
   sessionId: string;
   players: number;
   /** 끊긴 경우 이유 */
@@ -59,6 +62,7 @@ interface Remote {
   buffer: SnapshotBuffer;
   /** 가장 최근에 받은 서버 위치 (보간 전). 2-6 발밑 충돌 예측에 쓴다 */
   latest: Vec2;
+  nickname: string;
 }
 
 /** 동물 한 마리의 상태 (서버 시간 기준으로 보간) */
@@ -101,6 +105,8 @@ export class ParkSync {
   onOwnEmote?: (id: string, remainingMs: number) => void;
   /** 동물을 눌렀음 (쓰다듬기) */
   onAnimalTap?: (id: string) => void;
+  /** 다른 사람 캐릭터를 눌렀음 (숨기기 메뉴, 6-6). pointer: 누른 화면 위치 */
+  onPlayerTap?: (nickname: string, pointer: Phaser.Input.Pointer) => void;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -138,7 +144,10 @@ export class ParkSync {
         view: new CharacterView(this.scene, { x: player.x, y: player.y }, player.nickname, toAppearance(player)),
         buffer: new SnapshotBuffer(),
         latest: { x: player.x, y: player.y },
+        nickname: player.nickname,
       };
+      remote.view.enableTap((pointer) => this.onPlayerTap?.(remote.nickname, pointer));
+      remote.view.setHidden(isHidden(player.nickname));
       this.remotes.set(sessionId, remote);
       const emote = this.emoteWatcher();
       const push = () => {
@@ -308,7 +317,10 @@ export class ParkSync {
     const serverNow = this.clock.toServer(now);
     if (serverNow === null) return;
     const t = serverNow - this.clock.interpolationDelay;
+    const { showNicknames } = getSettings();
     for (const [sessionId, r] of this.remotes) {
+      r.view.setHidden(isHidden(r.nickname));
+      r.view.setNameVisible(showNicknames);
       const s = r.buffer.sample(t);
       if (s) r.view.setPose(s, s.facing, s.moving, s.seated);
       // 손에 든 간식은 위치처럼 보간할 필요가 없어서 최신 상태를 그대로 그린다
@@ -339,6 +351,7 @@ export class ParkSync {
     return {
       status: this.status,
       roomId: this.room.roomId,
+      channel: this.room.state.channel ?? 0,
       sessionId: this.room.sessionId,
       players: this.remotes.size + 1,
       leaveReason: this.leaveReason,

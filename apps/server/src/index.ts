@@ -6,6 +6,7 @@ import { config } from "./config";
 import { openDatabase } from "./db";
 import { createLogger } from "./logger";
 import { apiRouter } from "./http/api";
+import { channelsRouter } from "./http/channels";
 import { healthRouter } from "./http/health";
 import { loadParkMap } from "./map";
 import { ParkRoom } from "./rooms/ParkRoom";
@@ -30,6 +31,7 @@ const server = new Server({
     });
     app.use(healthRouter);
     app.use(apiRouter(db));
+    app.use(channelsRouter);
     // 방 목록·접속자 확인용 관리 화면. 운영에서는 끈다 (나중에 관리자 키로 보호해서 켤 수 있음)
     if (!config.isProduction) app.use("/monitor", monitor());
   },

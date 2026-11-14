@@ -54,10 +54,38 @@
     "PIN_MISMATCH": "두 PIN이 서로 달라요"
   },
   "status": {
-    "channel": "● 채널 {channel} · {players}명",
+    "channel": "● 채널 {channel} · {players}명 ▾",
     "disconnected": "● 연결이 끊겼어요. 새로고침해 주세요",
     "duplicateLogin": "● 다른 곳에서 같은 닉네임으로 들어와서 연결이 끊겼어요",
     "serverDown": "● 서버 연결 안 됨"
+  },
+  "channels": {
+    "title": "채널 목록 · 전체 {total}명",
+    "loading": "채널 목록 불러오는 중…",
+    "error": "채널 목록을 불러오지 못했어요",
+    "row": "채널 {channel}   {players}/{max}명",
+    "rowHere": "채널 {channel}   {players}/{max}명 · 지금 여기",
+    "rowFull": "채널 {channel}   {players}/{max}명 · 꽉 참",
+    "moving": "채널 옮기는 중…",
+    "failed": "채널을 옮기지 못했어요. 다시 골라 주세요"
+  },
+  "settings": {
+    "button": "설정",
+    "title": "설정",
+    "nicknames": "닉네임 표시",
+    "on": "켜짐",
+    "off": "꺼짐",
+    "volume": "소리 크기",
+    "hidden": "숨긴 사람 ({count}명)",
+    "hiddenNone": "숨긴 사람이 없어요",
+    "unhide": "다시 보기"
+  },
+  "player": {
+    "hide": "숨기기",
+    "hidden": "{nickname} 님을 숨겼어요. 설정에서 다시 볼 수 있어요"
+  },
+  "minimap": {
+    "legend": "● 나  ■ 간식 트럭"
   },
   "truck": {
     "hint": "Space 주문",

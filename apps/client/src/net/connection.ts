@@ -12,6 +12,12 @@ export async function joinPark(token: string): Promise<ParkRoom> {
   return (await client.joinOrCreate(ROOM_NAME, {})) as ParkRoom;
 }
 
+/** 채널 목록에서 고른 채널로 들어간다 (6-4). 꽉 찼거나 없어졌으면 오류 */
+export async function joinChannel(token: string, roomId: string): Promise<ParkRoom> {
+  client.auth.token = token;
+  return (await client.joinById(roomId, {})) as ParkRoom;
+}
+
 /**
  * 상태 변경 콜백 중 실제로 쓰는 것만 타입을 붙인다.
  * (SDK 타입 추론은 서버 Schema 클래스가 있어야 동작하는데, 클라이언트는 서버 코드를 import 하지 않는다)
