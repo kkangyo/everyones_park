@@ -7,6 +7,7 @@ import {
   TICK_SEC,
   facingFromInput,
   isBlockedTile,
+  isLookKey,
   isMoving,
   step,
   tileCenter,
@@ -136,6 +137,13 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
       if (typeof message === "object" && message !== null) this.cats.pet(client.sessionId, (message as Record<string, unknown>).animal);
     });
 
+    // 3D SD 꾸미기 (접속해 있는 동안만)
+    this.onMessage(MSG.look, (client, message: unknown) => {
+      const player = this.state.players.get(client.sessionId);
+      const look = typeof message === "object" && message !== null ? (message as Record<string, unknown>).look : undefined;
+      if (player && isLookKey(look)) player.look = look;
+    });
+
     // 고정 틱 누산기: 타이머는 틱 간격의 절반마다 깨어나서, 실제로 흐른 시간만큼 틱을 돌린다.
     // (setInterval 만 믿으면 타이머가 밀릴 때 틱 수가 줄어 모두가 느려진다)
     this.lastAdvanceAt = performance.now();
@@ -154,7 +162,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
     return user;
   }
 
-  onJoin(client: ParkClient): void {
+  onJoin(client: ParkClient, options?: unknown): void {
     const auth = client.auth!; // onAuth 를 통과해야 여기 온다
     const previous = activeByUser.get(auth.userId);
     if (previous) {
@@ -169,6 +177,8 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
     player.gender = auth.gender;
     player.face = auth.face;
     player.outfit = auth.outfit;
+    const look = typeof options === "object" && options !== null ? (options as Record<string, unknown>).look : undefined;
+    player.look = isLookKey(look) ? look : "";
     player.x = spawn.x;
     player.y = spawn.y;
     player.facing = "down";

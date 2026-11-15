@@ -124,6 +124,9 @@
     "meow": "냐옹",
     "purr": "골골"
   },
+  "move": {
+    "blocked": "거기는 갈 수 없어요"
+  },
   "action": {
     "order": "주문",
     "sit": "앉기",

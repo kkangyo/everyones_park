@@ -47,5 +47,7 @@ export default defineConfig({
   build: {
     // Phaser 자체가 약 1.2MB 라서 기본 경고 기준(500kB)을 넘는다
     chunkSizeWarningLimit: 1500,
+    // 메인 = 3D SD 겨울 공원 (index.html), 예전 2D 화면은 /2d.html 로 남겨 둔다
+    rollupOptions: { input: { main: "index.html", classic: "2d.html" } },
   },
 });

@@ -1,30 +1,222 @@
 <!doctype html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <!-- 확대 금지: 두 번 탭·두 손가락 확대로 화면이 커지면 터치 좌표가 게임과 어긋난다 -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>모두의 쉼터</title>
-    <!-- 아이콘이 생기기 전까지: 브라우저가 /favicon.ico 를 찾다가 404 를 내지 않게 -->
-    <link rel="icon" href="data:," />
-    <style>
-      html,
-      body {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #1b2433;
-      }
-      #game {
-        width: 100%;
-        height: 100%;
-        /* 게임 화면에서는 브라우저의 스크롤·확대 제스처 대신 게임이 터치를 받는다 */
-        touch-action: none;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="game"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#2b2840">
+<title>모두의 쉼터</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #3a3550; --card: rgba(255, 250, 244, 0.96); --accent: #ff8a5c; --on: #ffe4d6; --on-ink: #c2453c; --chip: #f1edf8; --line: #3a3550; --shadow: 0 5px 0 rgba(40, 30, 60, 0.25); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2b2840; color: var(--ink); font-family: "Jua", "Apple SD Gothic Neo", sans-serif; }
+  body { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  button { font-family: inherit; color: inherit; border: 0; cursor: pointer; }
+  .hidden { display: none !important; }
+  .bar { position: absolute; display: flex; gap: 4px; background: var(--card); padding: 5px; border-radius: 16px; box-shadow: var(--shadow); border: 2px solid var(--line); }
+  .bar button { background: transparent; border-radius: 11px; padding: 8px 10px; font-size: 14px; white-space: nowrap; }
+  .bar button.on { background: var(--on); color: var(--on-ink); }
+  #top { left: 12px; top: calc(env(safe-area-inset-top) + 12px); }
+  #rot button { min-width: 34px; font-size: 17px; padding: 6px 7px; }
+  #rotL, #rotR { font-family: system-ui, sans-serif; font-size: 21px; line-height: 1; } /* Jua 에는 화살표 글자가 없어 작게 나온다 */
+  #top a { display: flex; align-items: center; border-radius: 11px; padding: 8px 10px; font-size: 14px; color: inherit; text-decoration: none; white-space: nowrap; }
+  /* 불러오는 화면 · 실패 안내 */
+  #boot { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: #2b2840; color: #fff; text-align: center; transition: opacity .4s; }
+  #boot.done { opacity: 0; pointer-events: none; }
+  #boot b { display: block; font-size: 22px; margin-top: 10px; font-weight: normal; }
+  #boot small { display: block; margin-top: 6px; opacity: .7; font-size: 14px; }
+  #boot .snowman { font-size: 46px; animation: bob 1.2s ease-in-out infinite; }
+  #boot a { display: inline-block; margin-top: 16px; color: #2b2840; background: #fff; padding: 8px 16px; border-radius: 12px; text-decoration: none; }
+  @keyframes bob { 50% { transform: translateY(-8px); } }
+  /* 조작 안내 */
+  #help ul { margin: 0; padding: 0; list-style: none; font-size: 15px; line-height: 1.5; }
+  #help li { display: flex; gap: 10px; padding: 5px 0; border-top: 1px dashed #ddd6e8; }
+  #help li:first-child { border-top: 0; }
+  #help li span:first-child { width: 26px; flex: none; text-align: center; }
+  #help .note { font-size: 13px; opacity: .7; margin: 8px 0 10px; }
+  #help .go { width: 100%; height: 46px; border-radius: 14px; background: var(--accent); color: #fff; font-size: 17px; }
+  /* 캐릭터 고르기 · 닉네임 */
+  body.picking .hud, body.picking #tag, body.picking #status, body.picking #order, body.picking .panel { display: none !important; }
+  @media (max-width: 440px) { #top .lbl { display: none; } #top button, #top a { padding: 8px 8px; } }
+  #pick { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; }
+  #pick > * { pointer-events: auto; }
+  #pick .ptitle { margin-top: calc(env(safe-area-inset-top) + 18px); font-size: 22px; color: #3a3550; background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 6px 16px; box-shadow: var(--shadow); }
+  #pick .sheet { margin-bottom: calc(env(safe-area-inset-bottom) + 12px); }
+  .prow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .prow button { width: 52px; height: 52px; border-radius: 16px; background: var(--chip); font-size: 28px; line-height: 1; font-family: system-ui, sans-serif; }
+  .prow div { text-align: center; } .prow b { display: block; font-size: 24px; font-weight: normal; } .prow small { font-size: 13px; opacity: .65; }
+  .dots { display: flex; justify-content: center; gap: 6px; margin: 8px 0 10px; } .dots i { width: 8px; height: 8px; border-radius: 50%; background: #ddd6e8; } .dots i.on { background: var(--accent); }
+  .nick { display: flex; align-items: center; gap: 8px; background: var(--chip); border-radius: 14px; padding: 6px 6px 6px 12px; }
+  .nick span { font-size: 14px; opacity: .7; flex: none; }
+  .nick input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 18px; color: var(--ink); outline: none; padding: 6px 0; }
+  .nick button { width: 40px; height: 40px; border-radius: 12px; background: #fff; font-size: 18px; }
+  #nickMsg { min-height: 20px; font-size: 13px; margin: 6px 4px 8px; color: #8a8199; } #nickMsg.bad { color: var(--on-ink); }
+  .go { width: 100%; height: 50px; border-radius: 14px; background: var(--accent); color: #fff; font-size: 19px; }
+  #where { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 116px); font-size: 14px; color: #fff; background: rgba(43, 40, 64, .7); padding: 4px 12px; border-radius: 10px; pointer-events: none; white-space: nowrap; }
+  #actions { position: absolute; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 14px); display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+  .act { min-width: 104px; height: 54px; padding: 0 16px; border-radius: 16px; background: var(--card); border: 2px solid var(--line); box-shadow: var(--shadow); font-size: 18px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .act.main { background: var(--accent); color: #fff; }
+  .act:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(40, 30, 60, .25); }
+  .ic { width: 30px; height: 30px; background-size: 300% 100%; background-position: 0 0; image-rendering: pixelated; flex: none; }
+  #toast { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 84px); transform: translateX(-50%); background: var(--card); border: 2px solid var(--line); border-radius: 14px;
+    padding: 8px 16px; font-size: 15px; box-shadow: var(--shadow); white-space: nowrap; transition: opacity .25s; pointer-events: none; text-align: center; max-width: calc(100% - 24px); }
+  #toast.off { opacity: 0; }
+  #toast .barp { height: 6px; background: #efe6f6; margin-top: 6px; border-radius: 3px; overflow: hidden; }
+  #toast .barp i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .modal { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; background: rgba(30, 25, 50, .35); }
+  .sheet { width: calc(100% - 24px); max-width: 440px; margin-bottom: calc(env(safe-area-inset-bottom) + 12px); background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 14px; box-shadow: var(--shadow); }
+  .sheet header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 20px; }
+  .sheet header button { width: 38px; height: 38px; border-radius: 12px; background: var(--chip); font-size: 17px; }
+  .foods { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .food { background: var(--chip); border-radius: 14px; padding: 10px 6px; font-size: 16px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .food .ic { width: 36px; height: 36px; }
+  #dress .sheet { max-height: calc(100% - 90px); overflow-y: auto; }
+  .dtop { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 6px; }
+  #dressPrev { width: 128px; height: 128px; background: #e9ecf7; border-radius: 16px; }
+  .drow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px dashed #ddd6e8; }
+  .drow > span { width: 52px; flex: none; font-size: 14px; opacity: .75; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: 11px; padding: 7px 11px; font-size: 14px; }
+  .chip.on { background: var(--on); color: var(--on-ink); box-shadow: inset 0 0 0 2px var(--on-ink); }
+  .chip:disabled { opacity: .35; }
+  .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(58, 53, 80, .25); }
+  .sw.on { border: 3px solid var(--ink); transform: scale(1.1); }
+  .sw.none { background: repeating-linear-gradient(45deg, #fff 0 4px, #e7e2ef 4px 8px); }
+  #btnEmote { width: 54px; height: 54px; border-radius: 50%; background: var(--card) var(--emote-btn) center / 36px no-repeat; image-rendering: pixelated; border: 2px solid var(--line); box-shadow: var(--shadow); }
+  #emotePal { position: absolute; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 80px); display: grid; grid-template-columns: repeat(4, 64px); gap: 6px; background: var(--card); border: 2px solid var(--line); border-radius: 18px; padding: 8px; box-shadow: var(--shadow); }
+  #emotePal button { background: var(--chip); border-radius: 12px; padding: 6px 0 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; }
+  #emotePal button:disabled { opacity: .4; }
+  #emotePal i, .ebub { display: block; width: 40px; height: 40px; background-image: var(--emotes); background-size: 800% 100%; image-rendering: pixelated; }
+  .ebub { position: absolute; width: 48px; height: 48px; transform: translate(-50%, -100%); pointer-events: none; transition: opacity .3s; }
+  .ebub.pop { animation: bub .14s ease-out; } .ebub.out { opacity: 0; }
+  @keyframes bub { from { transform: translate(-50%, -100%) scale(.3); } to { transform: translate(-50%, -100%) scale(1); } }
+  .pop.bub { color: #1b2433; background: #fff; border: 2px solid var(--line); border-radius: 9px; padding: 0 6px; font-size: 13px; text-shadow: none; }
+  .pop.ex { color: #ffc93a; font-size: 24px; text-shadow: 2px 0 #3a3550, -2px 0 #3a3550, 0 2px #3a3550, 0 -2px #3a3550; }
+  .pop.q { color: #fff; font-size: 22px; text-shadow: 2px 0 #3a3550, -2px 0 #3a3550, 0 2px #3a3550, 0 -2px #3a3550; }
+  .pop.purr { color: #e2587a; font-size: 15px; }
+  .pop.heart { color: #ff6f93; font-size: 16px; animation-duration: 1.1s; }
+  .pop.zz { color: #7f8fb8; font-size: 14px; animation-duration: 1.6s; }
+  #mapModal { align-items: center; }
+  #mapModal .sheet { margin: 0; max-width: 560px; padding: 10px; }
+  #mapCanvas { display: block; width: 100%; height: auto; border-radius: 12px; image-rendering: pixelated; touch-action: none; }
+  .hint { font-size: 13px; opacity: .7; margin-top: 6px; text-align: center; }
+  .tag { position: absolute; transform: translate(-50%, -100%); font-size: 12px; color: #fff; background: rgba(43, 40, 64, .8); padding: 1px 7px; border-radius: 8px; pointer-events: none; white-space: nowrap; }
+  #tag { background: rgba(194, 69, 60, .88); } /* 내 이름표는 다른 사람과 구분되게 */
+  body.picking .other { display: none !important; }
+  .pop { position: absolute; transform: translate(-50%, -100%); font-size: 17px; color: #c2453c; pointer-events: none; white-space: nowrap; text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff; animation: pop 1.3s ease-out forwards; }
+  @keyframes pop { 0% { opacity: 0; margin-top: 6px; } 15% { opacity: 1; } 100% { opacity: 0; margin-top: -30px; } }
+  /* 접속 상태(채널) · 채널 목록 · 설정 · 다른 사람 메뉴 (6-4~6-6) */
+  #status { position: absolute; left: 12px; top: calc(env(safe-area-inset-top) + 70px); font-size: 13px; color: #fff; background: rgba(43, 40, 64, .78); padding: 5px 11px; border-radius: 10px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
+  #status[data-state="ok"] { background: rgba(46, 130, 80, .88); } #status[data-state="bad"] { background: rgba(194, 69, 60, .92); }
+  .panel { position: absolute; background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; max-height: calc(100% - 140px); overflow-y: auto; }
+  .panel small { font-size: 12px; opacity: .7; } .panel header { font-size: 17px; }
+  #channels { left: 12px; top: calc(env(safe-area-inset-top) + 102px); min-width: 210px; }
+  #channels button { text-align: left; background: var(--chip); border-radius: 11px; padding: 9px 12px; font-size: 14px; }
+  #channels button.here { background: #d9f0df; color: #23683a; } #channels button.full { opacity: .5; } #channels button:disabled { cursor: default; }
+  #mini { position: absolute; right: 12px; top: calc(env(safe-area-inset-top) + 12px); padding: 5px; background: var(--card); border: 2px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); cursor: pointer; }
+  #mini canvas { display: block; border-radius: 8px; }
+  #mini small { display: block; font-size: 11px; text-align: center; margin-top: 3px; opacity: .75; }
+  #side { position: absolute; right: 12px; top: calc(env(safe-area-inset-top) + 12px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
+  #side > * { pointer-events: auto; position: static; }
+  #side #mini { position: static; }
+  #settingsBtn { height: 40px; padding: 0 14px; border-radius: 14px; background: var(--card); border: 2px solid var(--line); box-shadow: var(--shadow); font-size: 15px; }
+  #settings { right: 12px; top: calc(env(safe-area-inset-top) + 12px); width: 250px; z-index: 2; }
+  .srow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 15px; }
+  .srow span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srow button { background: var(--chip); border-radius: 10px; padding: 7px 12px; font-size: 14px; flex: none; } .srow button.on { background: #d9f0df; color: #23683a; }
+  .srow .vol { display: flex; align-items: center; gap: 6px; } .srow .vol b { width: 44px; text-align: center; font-weight: normal; }
+  #playerMenu { z-index: 3; } #playerMenu b { font-weight: normal; font-size: 16px; color: var(--on-ink); }
+  #pmHide { background: #e0605a; color: #fff; border-radius: 11px; padding: 9px 14px; font-size: 15px; }
+  /* 내 주문 상태 */
+  #order { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 116px); display: flex; align-items: center; gap: 8px; background: var(--card); border: 2px solid var(--line); border-radius: 14px; padding: 5px 6px 5px 12px; box-shadow: var(--shadow); font-size: 15px; white-space: nowrap; max-width: calc(100% - 24px); }
+  #orderCancel { background: #e0605a; color: #fff; border-radius: 10px; padding: 6px 11px; font-size: 14px; }
+  #order:not(.hidden) ~ #where { top: calc(env(safe-area-inset-top) + 160px); }
+  .truckTag { background: rgba(43, 40, 64, .85); font-size: 13px; padding: 2px 9px; }
+  #helpLine { position: absolute; left: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px); font-size: 12px; color: #fff; background: rgba(43, 40, 64, .6); padding: 4px 10px; border-radius: 10px; pointer-events: none; max-width: calc(100% - 200px); }
+  #debug { position: absolute; left: 12px; top: calc(env(safe-area-inset-top) + 140px); margin: 0; font: 11px/1.4 ui-monospace, monospace; color: #1b2433; background: rgba(255, 255, 255, .85); padding: 6px 8px; border-radius: 8px; pointer-events: none; white-space: pre; }
+  #handMenu .food:disabled { opacity: .6; }
+  /* 입장: 로그인 · 처음이에요 */
+  #lobby { margin-top: 2px; }
+  #lobbyTabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  #lobbyTabs button { flex: 1; height: 38px; border-radius: 12px; background: var(--chip); font-size: 15px; }
+  #lobbyTabs button[aria-selected="true"] { background: var(--on); color: var(--on-ink); box-shadow: inset 0 0 0 2px var(--on-ink); }
+  #lobby .nick { margin-top: 6px; } #lobby .nick span { width: 62px; }
+  .msg { min-height: 18px; font-size: 13px; margin: 4px 4px 0; color: #8a8199; } .msg.bad, #lobbyMsg { color: var(--on-ink); }
+  #lobbyMsg:empty { min-height: 0; margin: 0; }
+  .privacy { font-size: 12px; opacity: .6; text-align: center; margin: 8px 0 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="boot" role="status"><div><div class="snowman">⛄</div><b>겨울 공원 준비 중…</b><small>처음 열 때는 조금 걸려요</small></div></div>
+<div class="bar hud" id="top"></div>
+<button id="status" class="hidden"></button>
+<div id="channels" class="panel hidden"></div>
+<div id="side" class="hud">
+  <div id="mini" role="button" aria-label="지도 크게 보기"><canvas id="miniCanvas"></canvas><small>● 나 ■ 간식 트럭</small></div>
+  <button id="settingsBtn">⚙️ 설정</button>
+  <div class="bar" id="rot"><button id="rotL" aria-label="왼쪽으로 돌리기">↺</button><button id="rotR" aria-label="오른쪽으로 돌리기">↻</button><button id="zoomOut" aria-label="축소">－</button><button id="zoomIn" aria-label="확대">＋</button></div>
+</div>
+<div id="settings" class="panel hidden"></div>
+<div id="playerMenu" class="panel hidden"><b id="pmName"></b><button id="pmHide">숨기기</button></div>
+<div id="order" class="hidden"><span id="orderText"></span><button id="orderCancel">취소</button></div>
+<div id="where" class="hud"></div>
+<div id="helpLine" class="hud hidden"></div>
+<pre id="debug" class="hidden"></pre>
+<div id="toast" class="off"></div>
+<div id="tag" class="tag">나</div>
+<div id="emotePal" class="hidden"></div>
+<div id="emoteBubble" class="ebub hidden"></div>
+<div id="actions" class="hud">
+  <button class="act hidden" id="btnPet"><span>🐾</span><span>쓰다듬기</span></button>
+  <button class="act hidden" id="btnSit"><span>🪑</span><span>앉기</span></button>
+  <button class="act hidden" id="btnEat"><span class="ic"></span><span></span></button>
+  <button class="act main hidden" id="btnShop"><span>🍢</span><span>주문</span></button>
+  <button id="btnEmote" aria-label="이모티콘"></button>
+</div>
+<div id="dress" class="modal hidden"><div class="sheet"><header><span>꾸미기</span><button id="dressClose" aria-label="닫기">✕</button></header><div class="dtop"><canvas id="dressPrev" width="128" height="128"></canvas><button id="dressRand" class="chip">🎲 아무거나</button></div><div id="dressRows"></div></div></div>
+<div id="handMenu" class="modal hidden"><div class="sheet"><header><span id="handTitle"></span><button id="handClose" aria-label="닫기">✕</button></header><div class="foods" id="handList" style="grid-template-columns: 1fr"></div></div></div>
+<div id="menu" class="modal hidden"><div class="sheet"><header><span id="menuTitle"></span><button id="menuClose" aria-label="닫기">✕</button></header><div class="foods" id="foods"></div></div></div>
+<div id="help" class="modal hidden"><div class="sheet"><header><span>모두의 쉼터 둘러보기</span><button id="helpClose" aria-label="닫기">✕</button></header>
+<ul><li><span>👆</span><span>바닥을 누르면 걸어가요. 누른 채 끌면 그쪽으로 계속 걸어요</span></li>
+<li><span>🍢</span><span>트럭·벤치·고양이를 누르면 다가가서 주문하고, 앉고, 쓰다듬어요</span></li>
+<li><span>✌️</span><span>두 손가락으로 돌리면 시점이 돌고, 위아래로 밀면 기울어지고, 벌리면 확대돼요</span></li>
+<li><span>🖱</span><span>컴퓨터는 오른쪽 버튼으로 끌어 돌리고, 휠로 확대·축소해요</span></li>
+<li><span>👕</span><span>꾸미기에서 머리·옷·모자·목도리를 바꿔요</span></li>
+<li><span>👋</span><span>같은 채널 친구들이 보여요. 왼쪽 위 채널을 누르면 다른 채널로 옮겨요</span></li>
+<li><span>⚙️</span><span>설정에서 닉네임 표시를 끄거나, 숨긴 사람을 다시 볼 수 있어요. 다른 사람을 누르면 숨길 수 있어요</span></li></ul>
+<p class="note">꾸민 모습은 이 기기에 저장되고, 들어와 있는 동안 다른 사람에게 보여요.</p>
+<button class="go" id="helpGo">둘러보기</button></div></div>
+<div id="pick" class="hidden"><div class="ptitle">어떤 친구로 놀러 갈까요?</div>
+<form class="sheet" id="lobbyForm" novalidate><div class="prow"><button type="button" id="pickPrev" aria-label="이전 캐릭터">‹</button><div><b id="pickName"></b><small id="pickNote"></small></div><button type="button" id="pickNext" aria-label="다음 캐릭터">›</button></div>
+<div class="dots" id="pickDots"></div>
+<div id="lobby">
+<div id="lobbyTabs" role="tablist"><button type="button" role="tab" data-mode="login">로그인</button><button type="button" role="tab" data-mode="signup">처음이에요</button></div>
+<label class="nick"><span>닉네임</span><input id="nick" name="nickname" autocomplete="username" spellcheck="false" placeholder="2–10자"><button id="nickDice" type="button" aria-label="랜덤 닉네임 추천">🎲</button></label>
+<div id="nickMsg" class="msg"></div>
+<label class="nick"><span>PIN</span><input id="pin" name="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="current-password" placeholder="숫자 4자리"></label>
+<label class="nick" id="pin2Row"><span>PIN 확인</span><input id="pin2" name="pinConfirm" type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" placeholder="한 번 더"></label>
+<div id="pinHint" class="msg"></div>
+<div id="lobbyMsg" class="msg" role="alert"></div>
+</div>
+<button type="submit" class="go" id="enter">공원 들어가기</button>
+<p class="privacy" id="privacy">닉네임과 암호화한 PIN, 캐릭터 선택만 저장해요</p></form></div>
+<div id="mapModal" class="modal hidden"><div class="sheet"><header><span>공원 지도</span><button id="mapClose" aria-label="닫기">✕</button></header><canvas id="mapCanvas"></canvas><div class="hint">가게나 가고 싶은 곳을 누르면 걸어가요</div></div></div>
+
+<script>
+// 불러오는 동안 생긴 오류(파일을 못 받음·WebGL 을 못 씀)는 빈 화면 대신 안내로
+window.bootFail = (msg) => { const b = document.getElementById("boot"); if (!b || b.classList.contains("done")) return;
+  b.innerHTML = `<div><div class="snowman">🥶</div><b>${msg}</b><small>새로고침하거나 다른 브라우저로 열어 주세요</small><a href="/2d.html">2D 화면으로 열기</a></div>`; };
+window.addEventListener("error", (e) => window.bootFail(/WebGL/i.test(e.message || "") ? "이 기기에서는 3D 화면을 열 수 없어요" : "공원을 불러오지 못했어요"));
+</script>
+<!-- Three.js r128 · 스프라이트(이모티콘·간식 아이콘)는 /park3d/ 의 파일을 전역으로 쓴다 (빌드 때 scripts/copy-park3d.mjs 가 dist/park3d 로 복사) -->
+<script src="/park3d/three.min.js"></script>
+<script src="/park3d/sprites-data.js"></script>
+<script type="module" src="/src/sd/main.js"></script>
+</body>
 </html>

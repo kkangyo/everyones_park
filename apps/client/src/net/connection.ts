@@ -7,15 +7,15 @@ export type ParkRoom = Room<any, ParkStateView>;
 const client = new Client(COLYSEUS_PATH);
 
 /** 로그인(POST /api/login)으로 받은 토큰으로 채널에 들어간다. 서버 onAuth 가 토큰을 검증한다 */
-export async function joinPark(token: string): Promise<ParkRoom> {
+export async function joinPark(token: string, look?: string): Promise<ParkRoom> {
   client.auth.token = token;
-  return (await client.joinOrCreate(ROOM_NAME, {})) as ParkRoom;
+  return (await client.joinOrCreate(ROOM_NAME, look ? { look } : {})) as ParkRoom;
 }
 
 /** 채널 목록에서 고른 채널로 들어간다 (6-4). 꽉 찼거나 없어졌으면 오류 */
-export async function joinChannel(token: string, roomId: string): Promise<ParkRoom> {
+export async function joinChannel(token: string, roomId: string, look?: string): Promise<ParkRoom> {
   client.auth.token = token;
-  return (await client.joinById(roomId, {})) as ParkRoom;
+  return (await client.joinById(roomId, look ? { look } : {})) as ParkRoom;
 }
 
 /**

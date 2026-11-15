@@ -26,6 +26,8 @@ export const MSG = {
   emote: "emote",
   /** 클라 → 서버: 동물 쓰다듬기 (PetMessage). 가까이 있어야 한다 */
   pet: "pet",
+  /** 클라 → 서버: 3D SD 꾸미기 바꾸기 (LookMessage). 입장할 때는 join 옵션 { look } 으로 보낸다 */
+  look: "look",
   /** 서버 → 클라: 나에게만 보내는 알림 (NoticeMessage) */
   notice: "notice",
 } as const;
@@ -48,6 +50,16 @@ export interface EmoteMessage {
 export interface PetMessage {
   /** 동물 id */
   animal: string;
+}
+
+export interface LookMessage {
+  /** SD 꾸미기 조합 (isLookKey). 계정에 저장하지 않고, 접속해 있는 동안만 다른 사람에게 보인다 */
+  look: string;
+}
+
+/** SD 꾸미기 조합 "머리.옷.머리색.옷색.모자.모자색.목도리" 형식. 값 자체는 화면이 확인하고 모르는 값은 기본값으로 그린다 */
+export function isLookKey(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 80 && /^[a-z]+(\.[a-z]+){6}$/.test(value);
 }
 
 export interface SitMessage {
@@ -95,6 +107,8 @@ export interface PlayerView {
   /** 얼굴 (= 몸 그림 id). shared/character.ts FACES */
   face: string;
   outfit: string;
+  /** SD 꾸미기 조합 (isLookKey). 2D 화면은 쓰지 않는다. 없으면 "" */
+  look: string;
   x: number;
   y: number;
   facing: Facing;
