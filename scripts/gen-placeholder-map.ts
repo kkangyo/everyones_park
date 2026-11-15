@@ -23,9 +23,11 @@
  *   ysort  : true 면 타일 레이어에서 빼서 캐릭터와 앞뒤 순서를 맞춰 그린다 (나무·바위·울타리)
  *   sprite : 타일 대신 그릴 스프라이트 이름. 아랫변을 타일 아랫변에 맞춰 그린다 (위로 삐져나옴)
  *
- * 주의: Tiled 에디터에서 park.json 을 직접 고치기 시작하면 이 스크립트를 다시 돌리지 말 것 (덮어씀).
+ * 주의: 지도 원본은 이제 assets/maps/park.json 이다 (3D 미리보기 편집 모드로 고친다: /park3d/?edit).
+ * 이 스크립트를 돌리면 편집한 지도를 처음 생성본으로 덮어쓰므로, park.json 이 있으면 --force 없이는 멈춘다.
+ *   pnpm gen:map -- --force
  */
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Canvas, CLEAR, encodePng, hex } from "./lib/png";
@@ -238,6 +240,10 @@ const tallTree = buildTallTree();
 const tilesetPath = resolve(ROOT, "assets/tiles/placeholder.png");
 const treePath = resolve(ROOT, "assets/sprites/tree-tall.png");
 const mapPath = resolve(ROOT, "assets/maps/park.json");
+if (existsSync(mapPath) && !process.argv.includes("--force")) {
+  console.error("assets/maps/park.json 이 이미 있습니다. 편집한 지도를 생성본으로 덮어쓰려면 pnpm gen:map -- --force");
+  process.exit(1);
+}
 for (const p of [tilesetPath, treePath, mapPath]) mkdirSync(dirname(p), { recursive: true });
 
 writeFileSync(tilesetPath, encodePng(tileset));

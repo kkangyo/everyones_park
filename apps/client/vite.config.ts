@@ -1,5 +1,6 @@
 import { defineConfig, type ProxyOptions } from "vite";
 import { COLYSEUS_PATH } from "../../packages/shared/src/paths.ts";
+import { mapEditPlugin } from "./map-edit-plugin.ts";
 
 // 게임 서버 주소. 개발(vite dev)·미리보기(vite preview) 모두 API·헬스체크·게임 접속을 여기로 넘긴다.
 // (운영에서는 Caddy가 같은 역할)
@@ -25,6 +26,8 @@ const proxy: Record<string, string | ProxyOptions> = {
 };
 
 export default defineConfig({
+  // 지도 편집 저장 통로 (pnpm dev 에서만. 운영 빌드에는 없음): /park3d/?edit
+  plugins: [mapEditPlugin()],
   // 리포 루트의 assets/ (맵·타일·스프라이트)를 그대로 제공. 서버도 같은 맵 파일을 읽는다.
   publicDir: "../../assets",
   server: {

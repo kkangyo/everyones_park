@@ -8,6 +8,7 @@
   },
   "include": [
     "vite.config.ts",
+    "map-edit-plugin.ts",
     "../../packages/shared/src/protocol.ts"
   ]
 }

@@ -7,7 +7,6 @@
     4608,
     5632
   ],
-  "deterministic": true,
   "walkableTiles": 14086,
   "reachableWalkableTiles": 14086,
   "trucks": 8,
@@ -18,7 +17,6 @@
   "iceTiles": 1218,
   "bridgeTiles": 24,
   "mainLoopSegments": 18,
-  "mainLoopConnected": true,
   "loopLengthTiles": 357,
   "truckRoutes": [
     {
@@ -95,5 +93,7 @@
       "id": "creek-bridge",
       "tiles": 59
     }
-  ]
+  ],
+  "errors": [],
+  "problems": []
 }
