@@ -122,9 +122,21 @@
   #mini small { display: block; font-size: 11px; text-align: center; margin-top: 3px; opacity: .75; }
   #side { position: absolute; right: 12px; top: calc(env(safe-area-inset-top) + 12px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
   #side > * { pointer-events: auto; position: static; }
+  #side.collapsed > :not(#sideToggle) { display: none !important; }
+  #sideToggle { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 14px; background: var(--card); border: 2px solid var(--line); box-shadow: var(--shadow); font-size: 14px; }
+  #sideToggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   #side #mini { position: static; }
+  /* 미니맵 왼쪽 '오늘의 공원' (7-3) · 소리 버튼 (6-2) · 관리자 공지 (7-2) */
+  #sideTop, #sideBtns { display: flex; align-items: flex-start; gap: 8px; }
+  #today { background: var(--card); border: 2px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 10px; font-size: 13px; max-width: 170px; }
+  #today header { font-size: 12px; color: var(--on-ink); } #today small { display: block; font-size: 11px; opacity: .7; margin-top: 4px; }
+  #today .row { display: flex; align-items: center; gap: 4px; white-space: nowrap; } #today .ic { width: 22px; height: 22px; }
+  #today .compact { display: none; white-space: nowrap; }
+  @media (max-width: 560px) { #today { padding: 5px 8px; font-size: 12px; } #today .full { display: none; } #today .compact { display: block; } }
+  #muteBtn { width: 40px; height: 40px; border-radius: 14px; background: var(--card); border: 2px solid var(--line); box-shadow: var(--shadow); font-size: 17px; font-family: system-ui, sans-serif; }
+  #announce { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 116px); z-index: 4; background: var(--accent); color: #fff; border: 2px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 8px 16px; font-size: 16px; text-align: center; max-width: calc(100% - 24px); pointer-events: none; }
   #settingsBtn { height: 40px; padding: 0 14px; border-radius: 14px; background: var(--card); border: 2px solid var(--line); box-shadow: var(--shadow); font-size: 15px; }
-  #settings { right: 12px; top: calc(env(safe-area-inset-top) + 12px); width: 250px; z-index: 2; }
+  #settings { right: 12px; top: calc(env(safe-area-inset-top) + 64px); width: 250px; z-index: 2; }
   .srow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 15px; }
   .srow span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .srow button { background: var(--chip); border-radius: 10px; padding: 7px 12px; font-size: 14px; flex: none; } .srow button.on { background: #d9f0df; color: #23683a; }
@@ -157,13 +169,15 @@
 <div class="bar hud" id="top"></div>
 <button id="status" class="hidden"></button>
 <div id="channels" class="panel hidden"></div>
-<div id="side" class="hud">
-  <div id="mini" role="button" aria-label="지도 크게 보기"><canvas id="miniCanvas"></canvas><small>● 나 ■ 간식 트럭</small></div>
-  <button id="settingsBtn">⚙️ 설정</button>
+<div id="side" class="hud collapsed">
+  <button id="sideToggle" type="button" aria-expanded="false" aria-controls="sideTop sideBtns rot" aria-label="지도와 화면 도구 펼치기">지도·도구 ▾</button>
+  <div id="sideTop"><div id="today" class="hidden"></div><div id="mini" role="button" aria-label="지도 크게 보기"><canvas id="miniCanvas"></canvas><small>● 나 ■ 간식 트럭</small></div></div>
+  <div id="sideBtns"><button id="muteBtn" aria-label="소리 켜기·끄기">🔊</button><button id="settingsBtn">⚙️ 설정</button></div>
   <div class="bar" id="rot"><button id="rotL" aria-label="왼쪽으로 돌리기">↺</button><button id="rotR" aria-label="오른쪽으로 돌리기">↻</button><button id="zoomOut" aria-label="축소">－</button><button id="zoomIn" aria-label="확대">＋</button></div>
 </div>
 <div id="settings" class="panel hidden"></div>
 <div id="playerMenu" class="panel hidden"><b id="pmName"></b><button id="pmHide">숨기기</button></div>
+<div id="announce" class="hidden" role="status"></div>
 <div id="order" class="hidden"><span id="orderText"></span><button id="orderCancel">취소</button></div>
 <div id="where" class="hud"></div>
 <div id="helpLine" class="hud hidden"></div>
@@ -216,7 +230,14 @@ window.addEventListener("error", (e) => window.bootFail(/WebGL/i.test(e.message 
 </script>
 <!-- Three.js r128 · 스프라이트(이모티콘·간식 아이콘)는 /park3d/ 의 파일을 전역으로 쓴다 (빌드 때 scripts/copy-park3d.mjs 가 dist/park3d 로 복사) -->
 <script src="/park3d/three.min.js"></script>
+<!-- Meshy 인형(GLB) 읽기: three r128 의 examples/js 그대로 (GLTFLoader · SkeletonUtils 복제 · meshopt 압축 풀기) -->
+<script src="/park3d/GLTFLoader.js"></script>
+<script src="/park3d/SkeletonUtils.js"></script>
+<script src="/park3d/meshopt_decoder.js"></script>
 <script src="/park3d/sprites-data.js"></script>
+<script src="/park3d/lamps.js"></script>
+<script src="/park3d/trees.js"></script>
+<script src="/park3d/world.js"></script>
 <script type="module" src="/src/sd/main.js"></script>
 </body>
 </html>

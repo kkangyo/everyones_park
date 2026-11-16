@@ -1,6 +1,6 @@
 # 남자 사진 레퍼런스 캐릭터 초안
 
-Built-in image_gen으로 생성한 원본은 generated-source.png, 사용 프롬프트는 prompt.txt입니다.
+Built-in image_gen으로 생성한 원본은 generated-source.png입니다.
 기존 런타임 파일을 교체하거나 의상 ID를 등록하지 않았습니다.
 
 - ../preview-male-reference.png: 모든 동작을 담은 합성 미리보기

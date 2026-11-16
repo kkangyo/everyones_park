@@ -23,7 +23,7 @@
 
 ## 제작과 보정
 
-내장 `image_gen` 이미지 편집 도구를 사용했다. [정확한 프롬프트](sources/edit-prompt.txt), [생성 원본](sources/generated-dress.png), [이전 의상 백업](sources/before-outfit.png)을 보관했다. 입력은 기존 여성 합성 자세 묶음과 블레이저 의상 디테일 참고다.
+내장 `image_gen` 이미지 편집 도구를 사용했다. [생성 원본](sources/generated-dress.png), [이전 의상 백업](sources/before-outfit.png)을 보관했다. 입력은 기존 여성 합성 자세 묶음과 블레이저 의상 디테일 참고다.
 
 생성 결과의 머리/몸 변경과 가장자리 색 노이즈는 최종 시트에 사용하지 않았다. [assemble.ts](assemble.ts)에서 옷감 색/명암을 native 픽셀로 보정하고 목선·허리·치마 윤곽·주름·밑단을 명시적으로 조립했다. body-reference.png는 기존 몸 파일과 바이트까지 같다. 팔과 손은 기존 의상의 피부 픽셀을 그대로 합성했다. 눕기는 기준 쉬는 팔을 재사용해 들숨 때 팔이 사라지지 않도록 했다.
 

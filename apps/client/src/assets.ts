@@ -46,6 +46,8 @@ export const DEPTH = {
   nameplate: 100_000,
   /** 트럭 연기 */
   smoke: 150_000,
+  /** 내리는 눈. 캐릭터·연기 위, 말풍선 아래 */
+  snow: 160_000,
   /** 머리 위 말풍선, 트럭 메뉴 */
   bubble: 200_000,
   debug: 1_000_000,
@@ -197,6 +199,19 @@ export function catAnimKey(action: CatAction, view: CatView): string {
 /** 코드로 만드는 작은 텍스처 (BootScene) */
 export const GENERATED = {
   smoke: "fx-smoke",
+  /** 눈송이 3x3 (6-1) */
+  snow: "fx-snow",
+  /** 소리 켜기·끄기 버튼 아이콘 12x12 (6-2) */
+  speaker: "ui-speaker",
+  speakerMuted: "ui-speaker-muted",
   /** 손 흔들기(안녕 이모티콘)에 쓰는 벙어리장갑 5x6 */
   mitten: "fx-mitten",
+} as const;
+
+/** 소리 (6-2). 임시 소리 생성: pnpm gen:sound */
+export const SOUNDS = {
+  bgm: { key: "bgm-winter", url: "sounds/bgm-winter.wav" },
+  sizzle: { key: "sfx-sizzle", url: "sounds/sizzle.wav" },
+  ready: { key: "sfx-ready", url: "sounds/ready.wav" },
+  pop: { key: "sfx-pop", url: "sounds/pop.wav" },
 } as const;

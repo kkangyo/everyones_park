@@ -34,6 +34,8 @@ export class TruckSystem {
     placements: readonly TruckPlacement[],
     private readonly hands: HandsSystem,
     private readonly notify: (sessionId: string, msg: NoticeMessage) => void,
+    /** 간식을 손님에게 건넴 (통계 7-3) */
+    private readonly onServed: (item: string) => void = () => {},
   ) {
     for (const placement of placements) {
       const truckState = new TruckState();
@@ -107,6 +109,7 @@ export class TruckSystem {
     truck.state.cookingItem = "";
     this.updateQueue(truck);
     this.notify(sessionId, { code: "ORDER_READY", item });
+    this.onServed(item);
   }
 
   /** 대기 순서·대기 인원 다시 계산 */

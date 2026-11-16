@@ -71,7 +71,7 @@ Vite는 포트가 이미 쓰이고 있으면 다른 포트로 바꾸지 않고 �
 
 ### 환경변수 (`apps/server/.env`)
 
-[apps/server/.env.example](apps/server/.env.example) 참고. `PORT`, `LOG_LEVEL`, `MAX_CLIENTS`(채널 정원, 자동 분할 시험 시 2로), `ASSETS_DIR`, `DB_PATH`(SQLite 파일, 기본 `apps/server/data.db`), `AUTH_SECRET`(입장 토큰 서명 키, **운영에서 필수**), `TOKEN_TTL_SEC`.
+[apps/server/.env.example](apps/server/.env.example) 참고. `PORT`, `LOG_LEVEL`, `MAX_CLIENTS`(채널 정원, 자동 분할 시험 시 2로), `ASSETS_DIR`, `DB_PATH`(SQLite 파일, 기본 `apps/server/data.db`), `AUTH_SECRET`(입장 토큰 서명 키, **운영에서 필수**), `TOKEN_TTL_SEC`, `ADMIN_KEY`(관리자 API 키, 비우면 관리자 API 꺼짐), `STATS_TZ`(통계 날짜 시간대, 기본 `Asia/Seoul`).
 
 클라이언트 쪽은 실행 명령이 정한다: `CLIENT_PORT`(Vite 포트), `SERVER_URL`(프록시 대상, 기본 `http://localhost:2567`).
 
@@ -120,6 +120,17 @@ pnpm deploy:stop             # 내리기
   `~/bin`이 PATH에 없으면 `CADDY_BIN=~/bin/caddy pnpm deploy:phone`.
 - 개발 서버(`pnpm dev`)와 운영 서버는 둘 다 2567 포트를 쓴다. 동시에 띄우지 않는다.
 - 운영 서버는 `AUTH_SECRET` 이 없으면 시작하지 않는다. `deploy:phone` 이 처음 한 번 만들어 `apps/server/.env` 에 저장한다 (바꾸면 발급된 토큰이 모두 무효 → 다시 로그인하면 됨).
+- 관리자 키 `ADMIN_KEY` 도 `deploy:phone` 이 처음 한 번 만들어 `apps/server/.env` 에 저장한다. 관리자 API (헤더 `x-admin-key`):
+  ```bash
+  KEY=$(grep '^ADMIN_KEY=' apps/server/.env | cut -d= -f2)
+  # 공지 (모든 채널, 10초 표시)
+  curl -X POST localhost:2567/api/admin/notice -H "x-admin-key: $KEY" -H 'content-type: application/json' -d '{"text":"곧 서버 점검이 있어요"}'
+  # 내보내기 (banMinutes 동안 다시 못 들어옴, 0 이면 내보내기만. 서버를 다시 켜면 풀림)
+  curl -X POST localhost:2567/api/admin/kick -H "x-admin-key: $KEY" -H 'content-type: application/json' -d '{"nickname":"닉네임","banMinutes":30}'
+  # 통계 (최근 7일: 방문자, 방문 수, 평균 체류 시간, 간식별 개수)
+  curl localhost:2567/api/admin/stats?days=7 -H "x-admin-key: $KEY"
+  ```
+  키를 5번 틀리면 그 IP 는 10분간 막힌다.
 - 계정 DB 는 `apps/server/data.db` (+ `-wal`, `-shm`). 백업할 때는 이 파일들을 같이 복사한다.
 - better-sqlite3·argon2 는 네이티브 모듈이다. arm64 미리 빌드 바이너리를 못 받으면 직접 빌드하므로 `sudo apt install build-essential python3` 가 필요할 수 있다.
 

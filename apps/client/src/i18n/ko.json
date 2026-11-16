@@ -51,13 +51,15 @@
     "JOIN_FAILED": "공원에 들어가지 못했어요. 다시 시도해 주세요",
     "NICKNAME_TAKEN": "이미 있는 닉네임이에요. 내 닉네임이면 '로그인'에서 들어가 주세요",
     "NICKNAME_NOT_FOUND": "없는 닉네임이에요. 처음이면 '처음이에요'에서 만들어 주세요",
-    "PIN_MISMATCH": "두 PIN이 서로 달라요"
+    "PIN_MISMATCH": "두 PIN이 서로 달라요",
+    "BANNED": "관리자가 잠시 입장을 막았어요. 나중에 다시 와 주세요"
   },
   "status": {
     "channel": "● 채널 {channel} · {players}명 ▾",
     "disconnected": "● 연결이 끊겼어요. 새로고침해 주세요",
     "duplicateLogin": "● 다른 곳에서 같은 닉네임으로 들어와서 연결이 끊겼어요",
-    "serverDown": "● 서버 연결 안 됨"
+    "serverDown": "● 서버 연결 안 됨",
+    "kicked": "● 관리자가 공원에서 내보냈어요"
   },
   "channels": {
     "title": "채널 목록 · 전체 {total}명",
@@ -83,6 +85,18 @@
   "player": {
     "hide": "숨기기",
     "hidden": "{nickname} 님을 숨겼어요. 설정에서 다시 볼 수 있어요"
+  },
+  "announce": {
+    "prefix": "공지 · {text}"
+  },
+  "stats": {
+    "title": "오늘의 공원",
+    "visitors": "방문 {visitors}명",
+    "topSnacks": "인기 간식",
+    "noSnacks": "아직 없어요",
+    "snackRow": "{rank}. {item} {count}",
+    "compact": "오늘 {visitors}명 · 인기 {item}",
+    "compactNoSnack": "오늘 {visitors}명 방문"
   },
   "minimap": {
     "legend": "● 나  ■ 간식 트럭"
@@ -135,6 +149,6 @@
     "pet": "쓰다듬기"
   },
   "controls": {
-    "help": "WASD·클릭 이동 · Space 주문 · Q 먹기 (내 캐릭터 클릭: 고르기) · E·자리 클릭 앉기/일어나기 · 1–8 이모티콘 · F 고양이 쓰다듬기"
+    "help": "WASD·클릭 이동 · Space 주문 · Q 먹기 (내 캐릭터 클릭: 고르기) · E·자리 클릭 앉기/일어나기 · 1–8 이모티콘 · F 고양이 쓰다듬기 · M 소리 켜기/끄기"
   }
 }

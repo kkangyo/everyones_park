@@ -2,7 +2,7 @@
 import { openSqlite } from "./sqlite";
 import type { Database } from "./types";
 
-export type { Database, NewUser, User, UserRepo } from "./types";
+export type { Database, NewUser, StatsRepo, User, UserRepo } from "./types";
 export { NicknameTakenError } from "./types";
 
 export function openDatabase(options: { path: string }): Database {

@@ -1,6 +1,8 @@
-import { Room, type AuthContext, type Client } from "@colyseus/core";
+import { Room, ServerError, type AuthContext, type Client } from "@colyseus/core";
 import {
+  ANNOUNCE_MAX_LENGTH,
   CLOSE_CODE,
+  JOIN_ERROR_BANNED,
   HANDS_MAX,
   MSG,
   TICK_MS,
@@ -12,6 +14,8 @@ import {
   step,
   tileCenter,
   tileOf,
+  nicknameKey,
+  type AnnounceMessage,
   type AuthUser,
   type Axis,
   type Facing,
@@ -27,6 +31,8 @@ import { ParkState, PlayerState } from "../schema/ParkState";
 import { CatSystem } from "../systems/cats";
 import { EmoteSystem } from "../systems/emotes";
 import { HandsSystem } from "../systems/hands";
+import { RateLimiter } from "../systems/rateLimit";
+import type { StatsService } from "../systems/stats";
 import { SeatSystem } from "../systems/seats";
 import { TruckSystem } from "../systems/truck";
 
@@ -62,6 +68,44 @@ type ParkClient = Client<{ auth: AuthUser }>;
  */
 const activeByUser = new Map<number, ParkClient>();
 
+/** 지금 열려 있는 채널 (관리자 공지·내보내기, 7-2) */
+const openRooms = new Set<ParkRoom>();
+
+/** userId → 다시 들어올 수 있는 시각 (unix ms). 관리자가 내보내면서 막은 계정. 서버를 다시 켜면 풀린다 */
+const bannedUntil = new Map<number, number>();
+
+/** 새로 들어온 사람에게도 보여 줄 최근 공지 (이 시간 안의 것만) */
+const ANNOUNCE_REPLAY_MS = 60_000;
+let lastAnnouncement: { text: string; at: number } | undefined;
+
+/** 관리자 공지: 모든 채널에 보낸다. 보낸 채널 수 */
+export function announce(text: string): number {
+  const msg: AnnounceMessage = { text: text.slice(0, ANNOUNCE_MAX_LENGTH) };
+  lastAnnouncement = { text: msg.text, at: Date.now() };
+  for (const room of openRooms) room.broadcast(MSG.announce, msg);
+  log.info(`announce to ${openRooms.size} channels: "${msg.text}"`);
+  return openRooms.size;
+}
+
+/** 관리자 내보내기: 그 닉네임으로 접속 중이면 끊고, banMinutes 동안 다시 못 들어오게 한다. 접속 중이었는지 */
+export function kick(nickname: string, banMinutes: number): boolean {
+  const key = nicknameKey(nickname);
+  let kicked = false;
+  for (const [userId, client] of activeByUser) {
+    if (nicknameKey(client.auth!.nickname) !== key) continue;
+    if (banMinutes > 0) bannedUntil.set(userId, Date.now() + banMinutes * 60_000);
+    client.leave(CLOSE_CODE.kicked);
+    kicked = true;
+  }
+  log.info(`kick "${nickname}" (${kicked ? "online" : "not online"}, ban ${banMinutes}min)`);
+  return kicked;
+}
+
+/** 지금 접속 중인 사람 수 (모든 채널) */
+export function onlineCount(): number {
+  return activeByUser.size;
+}
+
 /** 지금 쓰고 있는 채널 번호 (이 서버 프로세스 안). 새 채널은 비어 있는 가장 작은 번호를 받는다 */
 const usedChannelNumbers = new Set<number>();
 
@@ -86,6 +130,12 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
   private seats!: SeatSystem;
   private emotes!: EmoteSystem;
   private cats!: CatSystem;
+  private stats!: StatsService;
+  /** 요청 횟수 제한 (7-1). 넘치면 버리고 로그 */
+  private readonly limiter = new RateLimiter((sessionId, type, count) => {
+    const nickname = this.state.players.get(sessionId)?.nickname ?? "?";
+    log.warn(`rate limit ${this.roomId} ${sessionId} "${nickname}" ${type}: dropped ${count}`);
+  });
   /** sessionId → 아직 처리하지 않은 입력 */
   private readonly inputQueues = new Map<string, InputMessage[]>();
   /** sessionId → 입력 처리 몫 (MAX_INPUT_CREDIT 참고) */
@@ -94,8 +144,10 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
   private tickAccMs = 0;
   private lastAdvanceAt = performance.now();
 
-  onCreate(options: { map: ParkMap }): void {
+  onCreate(options: { map: ParkMap; stats: StatsService }): void {
     this.map = options.map;
+    this.stats = options.stats;
+    openRooms.add(this);
     this.maxClients = config.maxClients;
     this.state.channel = takeChannelNumber();
     void this.setMetadata({ channel: this.state.channel });
@@ -104,41 +156,47 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
     // 서버 권위 이동: 클라이언트는 입력만 보내고, 위치는 서버가 같은 step() 으로 계산한다.
     // 입력은 받는 즉시 처리하지 않고 대기열에 넣었다가 고정 틱마다 하나씩 처리한다.
     // → 네트워크가 흔들려도 다른 사람 눈에 일정한 속도로 보이고, 빨리 보내도 빨라지지 않는다
-    this.onMessage(MSG.input, (client, message: unknown) => this.queueInput(client, message));
+    this.on(MSG.input, (client, message) => this.queueInput(client, message));
 
     // 간식 트럭·양손 (Phase 4)
     this.hands = new HandsSystem(this.state);
-    this.trucks = new TruckSystem(this.state, this.map.trucks, this.hands, (sessionId, msg) => this.notify(sessionId, msg));
-    this.onMessage(MSG.order, (client, message: unknown) => this.trucks.order(client.sessionId, message));
-    this.onMessage(MSG.cancelOrder, (client) => this.trucks.cancel(client.sessionId));
-    this.onMessage(MSG.eat, (client, message: unknown) => {
+    this.trucks = new TruckSystem(
+      this.state,
+      this.map.trucks,
+      this.hands,
+      (sessionId, msg) => this.notify(sessionId, msg),
+      (item) => this.stats.snack(item),
+    );
+    this.on(MSG.order, (client, message) => this.trucks.order(client.sessionId, message));
+    this.on(MSG.cancelOrder, (client) => this.trucks.cancel(client.sessionId));
+    this.on(MSG.eat, (client, message) => {
       const player = this.state.players.get(client.sessionId);
       if (player) this.hands.startEating(player, this.state.tick, parseHand(message));
     });
 
     // 앉기·일어나기 (Phase 5)
     this.seats = new SeatSystem(this.state, this.map.seats, this.map.grid, (sessionId, msg) => this.notify(sessionId, msg));
-    this.onMessage(MSG.sit, (client, message: unknown) => this.seats.sit(client.sessionId, parseSeat(message)));
-    this.onMessage(MSG.stand, (client) => {
+    this.on(MSG.sit, (client, message) => this.seats.sit(client.sessionId, parseSeat(message)));
+    this.on(MSG.stand, (client) => {
       const player = this.state.players.get(client.sessionId);
       if (player) this.seats.stand(player);
     });
 
     // 이모티콘 (5-4)
     this.emotes = new EmoteSystem(this.state);
-    this.onMessage(MSG.emote, (client, message: unknown) => {
+    this.on(MSG.emote, (client, message) => {
       const emote = this.emotes.emote(client.sessionId, message);
       if (emote) this.cats.onEmote(client.sessionId, emote);
     });
 
     // 공원 동물 (Phase 5A). 친밀도는 계정마다 기억한다 (서버를 다시 켜면 처음부터)
     this.cats = new CatSystem(this.state, this.map.animals, this.map.grid, (sessionId) => this.clients.get(sessionId)?.auth?.userId);
-    this.onMessage(MSG.pet, (client, message: unknown) => {
+    this.on(MSG.pet, (client, message) => {
       if (typeof message === "object" && message !== null) this.cats.pet(client.sessionId, (message as Record<string, unknown>).animal);
     });
 
     // 3D SD 꾸미기 (접속해 있는 동안만)
-    this.onMessage(MSG.look, (client, message: unknown) => {
+    this.on(MSG.look, (client, message) => {
       const player = this.state.players.get(client.sessionId);
       const look = typeof message === "object" && message !== null ? (message as Record<string, unknown>).look : undefined;
       if (player && isLookKey(look)) player.look = look;
@@ -159,7 +217,19 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
   static async onAuth(token: string | undefined, _options: unknown, context: AuthContext): Promise<AuthUser | null> {
     const user = verifyToken(token);
     if (!user) log.info(`auth rejected from ${context.ip ?? "?"}`);
+    const until = user ? bannedUntil.get(user.userId) : undefined;
+    if (until !== undefined) {
+      if (until > Date.now()) throw new ServerError(403, JOIN_ERROR_BANNED);
+      bannedUntil.delete(user!.userId);
+    }
     return user;
+  }
+
+  /** 메시지 처리 등록 + 요청 횟수 제한 (7-1) */
+  private on(type: string, handler: (client: ParkClient, message: unknown) => void): void {
+    this.onMessage(type, (client: ParkClient, message: unknown) => {
+      if (this.limiter.allow(client.sessionId, type)) handler(client, message);
+    });
   }
 
   onJoin(client: ParkClient, options?: unknown): void {
@@ -191,12 +261,16 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
     this.state.players.set(client.sessionId, player);
     this.inputQueues.set(client.sessionId, []);
     this.inputCredits.set(client.sessionId, 0);
+    this.stats.join(auth.userId);
+    if (lastAnnouncement && Date.now() - lastAnnouncement.at < ANNOUNCE_REPLAY_MS) client.send(MSG.announce, { text: lastAnnouncement.text } satisfies AnnounceMessage);
     log.info(`join  ${this.roomId} ${client.sessionId} "${player.nickname}" (${this.clients.length}/${this.maxClients})`);
   }
 
   onLeave(client: ParkClient): void {
     const userId = client.auth?.userId;
     if (userId !== undefined && activeByUser.get(userId) === client) activeByUser.delete(userId);
+    if (userId !== undefined) this.stats.leave(userId);
+    this.limiter.forget(client.sessionId);
     this.trucks.cancel(client.sessionId);
     this.cats.onLeave(client.sessionId);
     const player = this.state.players.get(client.sessionId);
@@ -208,6 +282,7 @@ export class ParkRoom extends Room<{ state: ParkState; client: ParkClient; metad
 
   onDispose(): void {
     usedChannelNumbers.delete(this.state.channel);
+    openRooms.delete(this);
     log.info(`channel ${this.state.channel} (${this.roomId}) disposed (dropped inputs: ${this.droppedInputs})`);
   }
 

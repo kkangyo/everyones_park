@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from "@park/shared";
 import { createLogger } from "../logger";
-import { NicknameTakenError, type Database, type NewUser, type User, type UserRepo } from "./types";
+import { NicknameTakenError, type Database, type NewUser, type StatsRepo, type User, type UserRepo } from "./types";
 
 const log = createLogger("db");
 
@@ -24,6 +24,21 @@ const MIGRATIONS: readonly string[] = [
    ) STRICT`,
   // 2: 얼굴 선택. 예전 계정은 '' (읽을 때 옷에 맞는 얼굴로 채움)
   `ALTER TABLE users ADD COLUMN face TEXT NOT NULL DEFAULT ''`,
+  // 3: 통계 (7-3). 방문(들어옴~나감)과 날짜별 간식 완성 개수
+  `CREATE TABLE visits (
+     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+     user_id    INTEGER NOT NULL,
+     day        TEXT    NOT NULL,
+     joined_at  INTEGER NOT NULL,
+     left_at    INTEGER
+   ) STRICT;
+   CREATE INDEX visits_day ON visits (day);
+   CREATE TABLE snack_counts (
+     day    TEXT    NOT NULL,
+     item   TEXT    NOT NULL,
+     count  INTEGER NOT NULL,
+     PRIMARY KEY (day, item)
+   ) STRICT`,
 ];
 
 interface UserRow {
@@ -83,8 +98,45 @@ export function openSqlite(path: string): Database {
     },
   };
 
+  // 서버가 갑자기 꺼져서 끝나지 않은 방문은 체류 시간을 알 수 없으므로 0 으로 닫는다 (평균에서 빠짐)
+  const orphaned = db.prepare("UPDATE visits SET left_at = joined_at WHERE left_at IS NULL").run().changes;
+  if (orphaned > 0) log.info(`closed ${orphaned} unfinished visits from the previous run`);
+
+  const insertVisit = db.prepare<[number, string, number]>("INSERT INTO visits (user_id, day, joined_at) VALUES (?, ?, ?)");
+  const endVisit = db.prepare<[number, number]>("UPDATE visits SET left_at = ? WHERE id = ?");
+  const resumeVisit = db.prepare<[number]>("UPDATE visits SET left_at = NULL WHERE id = ?");
+  const addSnack = db.prepare<[string, string]>(
+    "INSERT INTO snack_counts (day, item, count) VALUES (?, ?, 1) ON CONFLICT (day, item) DO UPDATE SET count = count + 1",
+  );
+  const visitSummary = db.prepare<[number, string], { visitors: number; visits: number; avg_ms: number | null }>(
+    `SELECT COUNT(DISTINCT user_id) AS visitors, COUNT(*) AS visits,
+            AVG(CASE WHEN left_at IS NULL THEN ? - joined_at WHEN left_at > joined_at THEN left_at - joined_at END) AS avg_ms
+       FROM visits WHERE day = ?`,
+  );
+  const snackSummary = db.prepare<[string], { item: string; count: number }>("SELECT item, count FROM snack_counts WHERE day = ? ORDER BY count DESC, item");
+
+  const stats: StatsRepo = {
+    async startVisit(userId, day, at) {
+      return Number(insertVisit.run(userId, day, at).lastInsertRowid);
+    },
+    async endVisit(visitId, at) {
+      endVisit.run(at, visitId);
+    },
+    async resumeVisit(visitId) {
+      resumeVisit.run(visitId);
+    },
+    async addSnack(day, item) {
+      addSnack.run(day, item);
+    },
+    async daySummary(day, now) {
+      const v = visitSummary.get(now, day)!;
+      return { day, visitors: v.visitors, visits: v.visits, avgStaySec: Math.round((v.avg_ms ?? 0) / 1000), snacks: snackSummary.all(day) };
+    },
+  };
+
   return {
     users,
+    stats,
     async close() {
       db.close();
     },

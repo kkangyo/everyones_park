@@ -45,6 +45,12 @@ function readAuthSecret(): string {
   return DEV_AUTH_SECRET;
 }
 
+function readAdminKey(): string {
+  const raw = process.env.ADMIN_KEY ?? "";
+  if (raw && raw.length < 16) throw new Error("환경변수 ADMIN_KEY 은(는) 16자 이상이어야 합니다 (openssl rand -hex 24)");
+  return raw;
+}
+
 export const config = {
   port: readInt("PORT", 2567),
   logLevel: readLogLevel(),
@@ -60,6 +66,10 @@ export const config = {
   authSecret: readAuthSecret(),
   /** 입장 토큰 유효 시간 (초) */
   tokenTtlSec: readInt("TOKEN_TTL_SEC", 12 * 60 * 60),
+  /** 관리자 키 (7-2). 비어 있으면 관리자 API 를 끈다 */
+  adminKey: readAdminKey(),
+  /** 통계 날짜를 나누는 시간대 (7-3) */
+  statsTimeZone: process.env.STATS_TZ || "Asia/Seoul",
 } as const;
 
 export const LOG_LEVEL_ORDER: readonly LogLevel[] = LOG_LEVELS;

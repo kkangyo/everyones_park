@@ -31,7 +31,9 @@ import { DEPTH, bodySheet, idleFrame } from "../assets";
 import { DEBUG, DEV_KEYS, LAG_MS } from "../debug";
 import { Player } from "../entities/Player";
 import { localized, t } from "../i18n";
-import { getSettings } from "../settings";
+import { getSettings, updateSettings } from "../settings";
+import { ParkAudio } from "../world/ParkAudio";
+import { Snowfall } from "../world/Snowfall";
 import { KeyboardMove } from "../input/keyboard";
 import { PathFollower } from "../input/pathFollower";
 import { joinChannel, type ParkRoom } from "../net/connection";
@@ -64,6 +66,8 @@ const NUMBER_KEYS = ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIG
 export const TOAST_EVENT = "toast";
 /** 공원 씬 → UI 씬 이벤트: 다른 사람 캐릭터를 누름 (닉네임, 누른 포인터) → 숨기기 메뉴 (6-6) */
 export const PLAYER_MENU_EVENT = "playerMenu";
+/** 공원 씬 → UI 씬 이벤트: 관리자 공지 (7-2) */
+export const ANNOUNCE_EVENT = "announce";
 
 /** 입장 화면(Lobby)이 로그인·채널 접속을 마치고 넘겨 주는 값 */
 export interface ParkSceneData {
@@ -121,6 +125,8 @@ export class ParkScene extends Phaser.Scene {
   private lastCorrectionPx = 0;
   private corrections = 0;
   private trucks!: TruckController;
+  private audio!: ParkAudio;
+  private snow!: Snowfall;
   /** 트럭 위치 (미니맵 표시용) */
   truckPlacements: readonly TruckPlacement[] = [];
   private seats: Seat[] = [];
@@ -197,11 +203,19 @@ export class ParkScene extends Phaser.Scene {
         .setVisible(false);
     }
 
+    // 눈 (6-1)·소리 (6-2). 소리는 서버 상태 콜백(내 이모티콘 등)보다 먼저 준비
+    this.snow = new Snowfall(this);
+    this.audio = new ParkAudio(this, park.trucks);
+
     this.sync = new ParkSync(this, room, LAG_MS);
     this.sync.onOwnState = (state, first) => this.onOwnServerState(state, first);
     this.sync.onNotice = (notice) => this.onNotice(notice);
-    this.sync.onOwnEmote = (id, remainingMs) => this.player.view.showEmote(id, remainingMs);
+    this.sync.onOwnEmote = (id, remainingMs) => {
+      this.player.view.showEmote(id, remainingMs);
+      this.audio.playPop();
+    };
     this.sync.onAnimalTap = (id) => this.petAnimal(id);
+    this.sync.onAnnounce = (text) => this.events.emit(ANNOUNCE_EVENT, text);
     this.sync.onPlayerTap = (nickname, pointer) => {
       if (pointer.button === 0) this.events.emit(PLAYER_MENU_EVENT, nickname, pointer);
     };
@@ -227,6 +241,8 @@ export class ParkScene extends Phaser.Scene {
     kb.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on("down", () => this.closeHandMenu());
     // 숫자키 하나에 처리를 하나만 건다. 메뉴에서 고르면 메뉴가 닫히므로, 처리마다 따로 걸면 같은 키로 이모티콘까지 나간다
     NUMBER_KEYS.forEach((name, i) => kb.addKey(Phaser.Input.Keyboard.KeyCodes[name]).on("down", () => this.onNumberKey(i)));
+    // M: 소리 켜기·끄기 (6-2)
+    kb.addKey(Phaser.Input.Keyboard.KeyCodes.M).on("down", () => this.toggleMute());
     // E: 가까운 자리에 앉기 / 일어나기 (5-2). 빈 칸 확인은 서버가 한다
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E).on("down", () => this.toggleSeat());
     // F: 가까운 고양이 쓰다듬기 (5A-5)
@@ -288,6 +304,8 @@ export class ParkScene extends Phaser.Scene {
     this.sync.render(time);
     this.trucks.update();
     this.updateHandMenu();
+    this.snow.update();
+    this.audio.update(this.player.position, (id) => this.sync.truck(id), deltaMs);
 
     this.destMarker.setVisible(this.follower.active);
     if (this.collisionView) this.drawCollisionOverlay(this.collisionView.overlay);
@@ -452,8 +470,16 @@ export class ParkScene extends Phaser.Scene {
     return Math.max(0, EMOTE_COOLDOWN_SEC - elapsedSec);
   }
 
+  /** 스피커 버튼·M 키: 소리 켜기·끄기 (브라우저에 기억) */
+  toggleMute(): void {
+    const muted = !getSettings().muted;
+    updateSettings({ muted });
+    this.sound.mute = muted;
+  }
+
   /** 서버 알림: 손이 꽉 찼으면 머리 위 말풍선, 나머지는 화면 안내 */
   private onNotice(notice: NoticeMessage): void {
+    if (notice.code === "ORDER_READY") this.audio.playReady();
     const item = notice.item ? localized(MENU.get(notice.item)?.name ?? { ko: notice.item }) : "";
     const text = t(`notice.${notice.code}`, { item });
     if (notice.code === "HANDS_FULL" || notice.code === "SEAT_FULL") this.player.view.say(text);

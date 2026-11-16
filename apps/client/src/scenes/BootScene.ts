@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { CAT_FRAME, CAT_FRAMES_PER_ROW, CAT_SHEET_ROWS, MENU, TRUCKS } from "@park/shared";
-import { BODY_IDS, CAT_ANIMS, CAT_SHEET, CHARACTER, EMOTE_BUTTON, catAnimKey, EMOTE_SHEET, FOOD, GENERATED, MAP, PROP_SPRITES, TILESET, allCharacterSheets, bodySheet, foodSheet, idleFrame, poseAnimKey, truckSheet } from "../assets";
+import { BODY_IDS, CAT_ANIMS, CAT_SHEET, CHARACTER, EMOTE_BUTTON, catAnimKey, EMOTE_SHEET, FOOD, GENERATED, SOUNDS, MAP, PROP_SPRITES, TILESET, allCharacterSheets, bodySheet, foodSheet, idleFrame, poseAnimKey, truckSheet } from "../assets";
 import { t } from "../i18n";
 
 /** 에셋을 불러온 뒤 입장 화면을 시작한다. */
@@ -31,6 +31,7 @@ export class BootScene extends Phaser.Scene {
     }
     this.load.image(EMOTE_BUTTON.key, EMOTE_BUTTON.url);
     this.load.spritesheet(CAT_SHEET.key, CAT_SHEET.url, { frameWidth: CAT_FRAME, frameHeight: CAT_FRAME });
+    for (const sound of Object.values(SOUNDS)) this.load.audio(sound.key, sound.url);
     this.load.spritesheet(EMOTE_SHEET.key, EMOTE_SHEET.url, { frameWidth: EMOTE_SHEET.frameWidth, frameHeight: EMOTE_SHEET.frameHeight });
   }
 
@@ -85,5 +86,27 @@ export class BootScene extends Phaser.Scene {
     m.fillStyle(0xf4efe4, 1).fillRect(1, 4, 3, 1);
     m.generateTexture(GENERATED.mitten, 5, 6);
     m.destroy();
+
+    // 눈송이 (4x4): 흰 십자 + 오른쪽 아래 옅은 푸른 그림자 (밝은 눈밭 위에서도 보이게)
+    const s = this.make.graphics({}, false);
+    s.fillStyle(0x7f93ad, 0.55).fillRect(2, 1, 2, 3).fillRect(1, 2, 3, 2);
+    s.fillStyle(0xffffff, 0.7).fillRect(0, 0, 3, 3);
+    s.fillStyle(0xffffff, 1).fillRect(1, 0, 1, 3).fillRect(0, 1, 3, 1);
+    s.generateTexture(GENERATED.snow, 4, 4);
+    s.destroy();
+
+    // 스피커 (12x12): 몸통 + 나팔, 켜짐 = 소리 물결, 꺼짐 = X
+    for (const muted of [false, true]) {
+      const k = this.make.graphics({}, false);
+      k.fillStyle(0xffffff, 0.85).fillRoundedRect(0, 0, 12, 12, 2);
+      k.fillStyle(0x1b2433, 1).fillRect(1, 4, 3, 4).fillTriangle(3, 6, 7, 1, 7, 11);
+      if (muted) {
+        k.lineStyle(1.5, 0xd64545, 1).lineBetween(8, 4, 11, 8).lineBetween(11, 4, 8, 8);
+      } else {
+        k.fillStyle(0x1b2433, 1).fillRect(8, 5, 1, 2).fillRect(10, 3, 1, 6);
+      }
+      k.generateTexture(muted ? GENERATED.speakerMuted : GENERATED.speaker, 12, 12);
+      k.destroy();
+    }
   }
 }

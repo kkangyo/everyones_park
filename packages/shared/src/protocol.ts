@@ -30,7 +30,16 @@ export const MSG = {
   look: "look",
   /** 서버 → 클라: 나에게만 보내는 알림 (NoticeMessage) */
   notice: "notice",
+  /** 서버 → 클라: 관리자 공지 (AnnounceMessage). 모든 채널에 (7-2) */
+  announce: "announce",
 } as const;
+
+export interface AnnounceMessage {
+  text: string;
+}
+
+/** 관리자 공지 글자 수 */
+export const ANNOUNCE_MAX_LENGTH = 200;
 
 export interface OrderMessage {
   truck: string;
@@ -57,9 +66,12 @@ export interface LookMessage {
   look: string;
 }
 
-/** SD 꾸미기 조합 "머리.옷.머리색.옷색.모자.모자색.목도리" 형식. 값 자체는 화면이 확인하고 모르는 값은 기본값으로 그린다 */
+/**
+ * SD 꾸미기 조합 "머리.옷.머리색.옷색.모자.모자색.목도리[.목도리모양.목도리무늬]" 형식 (뒤 두 개는 나중에 추가, 없으면 기본값).
+ * 값 자체는 화면이 확인하고 모르는 값은 기본값으로 그린다
+ */
 export function isLookKey(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 80 && /^[a-z]+(\.[a-z]+){6}$/.test(value);
+  return typeof value === "string" && value.length <= 100 && /^[a-z]+(\.[a-z]+){6,8}$/.test(value);
 }
 
 export interface SitMessage {
@@ -87,7 +99,12 @@ export interface NoticeMessage {
 export const CLOSE_CODE = {
   /** 같은 계정으로 다른 곳(탭·기기)에서 들어와서 이전 연결을 끊음 */
   duplicateLogin: 4001,
+  /** 관리자가 내보냄 (7-2) */
+  kicked: 4002,
 } as const;
+
+/** 입장 거절 오류 메시지 (onAuth, HTTP 403). 관리자가 내보내면서 잠시 막은 계정 */
+export const JOIN_ERROR_BANNED = "BANNED";
 
 /**
  * 이동 입력 한 틱분. 서버는 받은 순서대로 step(TICK_SEC) 를 한 번씩 적용한다.
@@ -191,7 +208,59 @@ export const API = {
   checkNickname: "/api/nickname/check",
   /** GET → ChannelListResponse (6-4) */
   channels: "/api/channels",
+  /** GET → PublicStatsResponse. 화면의 '오늘의 공원' (7-3) */
+  statsToday: "/api/stats/today",
+  // 관리자 (7-2, 7-3). 헤더 x-admin-key: <ADMIN_KEY>
+  /** POST AdminNoticeRequest → { channels } */
+  adminNotice: "/api/admin/notice",
+  /** POST AdminKickRequest → { kicked } */
+  adminKick: "/api/admin/kick",
+  /** GET ?days=7 → AdminStatsResponse */
+  adminStats: "/api/admin/stats",
 } as const;
+
+/** 간식별 완성(받은) 개수 */
+export interface SnackCount {
+  item: string;
+  count: number;
+}
+
+export interface PublicStatsResponse {
+  /** 통계 날짜 (YYYY-MM-DD, 서버 STATS_TZ 기준) */
+  day: string;
+  /** 오늘 방문한 사람 수 (계정 기준, 중복 없음) */
+  visitors: number;
+  /** 오늘 인기 간식 (많은 순, 최대 3개) */
+  topSnacks: SnackCount[];
+}
+
+export interface DayStats {
+  day: string;
+  visitors: number;
+  /** 방문 횟수 (같은 사람이 여러 번 오면 여러 번) */
+  visits: number;
+  /** 평균 체류 시간 (초). 아직 있는 사람은 지금까지 */
+  avgStaySec: number;
+  /** 간식별 완성 개수 (많은 순) */
+  snacks: SnackCount[];
+}
+
+export interface AdminStatsResponse {
+  /** 지금 접속 중인 사람 (모든 채널) */
+  online: number;
+  /** 최근 날짜부터 */
+  days: DayStats[];
+}
+
+export interface AdminNoticeRequest {
+  text: string;
+}
+
+export interface AdminKickRequest {
+  nickname: string;
+  /** 다시 들어오지 못하게 막을 시간 (분, 0 = 내보내기만) */
+  banMinutes?: number;
+}
 
 /** 채널 목록의 채널 하나 */
 export interface ChannelInfo {

@@ -1,0 +1,107 @@
+{
+  "trees": [
+    {
+      "id": "pine",
+      "name": "설송 · 갈색 줄기와 눈 얹힌 솔가지",
+      "triangles": 5532,
+      "parts": [
+        "bark",
+        "snow",
+        "needles"
+      ],
+      "height": 2.95
+    },
+    {
+      "id": "spruce",
+      "name": "가문비 · 짙은 회록색 침엽수",
+      "triangles": 7304,
+      "parts": [
+        "bark",
+        "snow",
+        "needles"
+      ],
+      "height": 3.46
+    },
+    {
+      "id": "bare0",
+      "name": "겨울 참나무 · 굵은 갈색 가지",
+      "triangles": 2410,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 3.57
+    },
+    {
+      "id": "bare1",
+      "name": "느티나무 · 넓게 퍼진 회갈색 가지",
+      "triangles": 2210,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 3.02
+    },
+    {
+      "id": "bare2",
+      "name": "미루나무 · 좁고 곧은 수형",
+      "triangles": 2050,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 4.41
+    },
+    {
+      "id": "bare3",
+      "name": "자작나무 · 흰 수피와 검은 무늬",
+      "triangles": 2708,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 4.07
+    },
+    {
+      "id": "bare4",
+      "name": "상고대 · 서리가 덮인 흰 가지",
+      "triangles": 3560,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 3.68
+    },
+    {
+      "id": "bare5",
+      "name": "설화목 · 가지 위에 두껍게 쌓인 눈",
+      "triangles": 3220,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 3.22
+    },
+    {
+      "id": "bare6",
+      "name": "전정목 · 울퉁불퉁한 굵은 줄기",
+      "triangles": 1520,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 3.26
+    },
+    {
+      "id": "bare7",
+      "name": "어린 겨울나무 · 가는 회색 잔가지",
+      "triangles": 1160,
+      "parts": [
+        "bark",
+        "snow"
+      ],
+      "height": 3.24
+    }
+  ],
+  "errors": []
+}

@@ -1,8 +1,8 @@
 /**
  * Assemble the imagegen arm correction into native cells, then snap visible palms
  * to hand-rig v1. Source heads, body, feet and non-carry poses are never rescaled.
- * Run prepare-handsome-hand-edit.ts once, generate carry-edited.png with the saved
- * edit-prompt.txt, then: pnpm exec tsx scripts/fix-handsome-hands.ts
+ * Run prepare-handsome-hand-edit.ts once, generate carry-edited.png, then:
+ * pnpm exec tsx scripts/fix-handsome-hands.ts
  */
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";

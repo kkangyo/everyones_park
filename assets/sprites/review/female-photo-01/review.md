@@ -30,8 +30,8 @@
 
 내장 `image_gen` 도구를 사용했다. 정확한 프롬프트와 결과 원본:
 
-- [몸 프롬프트](sources/body-prompt.txt), [몸 생성 원본](sources/generated-body.png). 사진과 native 치수 가이드 묶음을 함께 입력했다.
-- [의상 프롬프트](sources/outfit-prompt.txt), [의상 생성 원본](sources/generated-outfit.png). 확정 몸의 자세 묶음과 치수 가이드를 참조했다.
+- [몸 생성 원본](sources/generated-body.png). 사진과 native 치수 가이드 묶음을 함께 입력했다.
+- [의상 생성 원본](sources/generated-outfit.png). 확정 몸의 자세 묶음과 치수 가이드를 참조했다.
 - [prepare.ts](prepare.ts): 프로젝트 가이드에서 중간 참조 묶음 생성.
 - [assemble.ts](assemble.ts): 원본 8방향 머리와 상의 색상/명암을 native 픽셀로 보정하고 112칸을 조립한다. 단순히 생성 이미지 전체를 128×896으로 강제 축소한 결과가 아니다.
 

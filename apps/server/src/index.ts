@@ -5,11 +5,14 @@ import { ROOM_NAME } from "@park/shared";
 import { config } from "./config";
 import { openDatabase } from "./db";
 import { createLogger } from "./logger";
+import { adminRouter } from "./http/admin";
 import { apiRouter } from "./http/api";
 import { channelsRouter } from "./http/channels";
 import { healthRouter } from "./http/health";
+import { statsRouter } from "./http/stats";
 import { loadParkMap } from "./map";
 import { ParkRoom } from "./rooms/ParkRoom";
+import { StatsService } from "./systems/stats";
 
 const log = createLogger("server");
 
@@ -18,6 +21,8 @@ log.info(`map loaded: ${map.grid.cols}x${map.grid.rows} tiles, entrance (${map.e
 
 const db = openDatabase({ path: config.dbPath });
 log.info(`database: ${config.dbPath}`);
+const stats = new StatsService(db.stats);
+if (!config.adminKey) log.info("admin API disabled (ADMIN_KEY not set)");
 
 const server = new Server({
   transport: new WebSocketTransport(),
@@ -32,12 +37,14 @@ const server = new Server({
     app.use(healthRouter);
     app.use(apiRouter(db));
     app.use(channelsRouter);
+    app.use(statsRouter(stats));
+    app.use(adminRouter(stats));
     // 방 목록·접속자 확인용 관리 화면. 운영에서는 끈다 (나중에 관리자 키로 보호해서 켤 수 있음)
     if (!config.isProduction) app.use("/monitor", monitor());
   },
 });
 
-server.define(ROOM_NAME, ParkRoom, { map });
+server.define(ROOM_NAME, ParkRoom, { map, stats });
 
 // Ctrl+C / SIGTERM 은 Colyseus 가 받아서 방을 정리한 뒤 종료한다
 server.onShutdown(async () => {

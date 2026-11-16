@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { JOIN_ERROR_BANNED } from "@park/shared";
 import { t, translate } from "../i18n";
 import { ApiFailure, login, signup } from "../net/api";
 import { joinPark } from "../net/connection";
@@ -59,6 +60,7 @@ export class LobbyScene extends Phaser.Scene {
 }
 
 function errorMessage(err: unknown): string {
+  if ((err as { message?: unknown })?.message === JOIN_ERROR_BANNED) return t("error.BANNED");
   if (!(err instanceof ApiFailure)) {
     console.warn("[lobby] 채널 접속 실패", err);
     return t("error.JOIN_FAILED");

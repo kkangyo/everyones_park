@@ -2,17 +2,20 @@ import Phaser from "phaser";
 import { DEBUG } from "../debug";
 import { t } from "../i18n";
 import { checkHealth, type ServerStatus } from "../net/health";
-import { EMOTE_BUTTON } from "../assets";
+import { EMOTE_BUTTON, GENERATED } from "../assets";
 import { ChannelList } from "../ui/ChannelList";
 import { EmotePalette } from "../ui/EmotePalette";
 import { Minimap } from "../ui/Minimap";
 import { PlayerMenu } from "../ui/PlayerMenu";
+import { StatsPanel } from "../ui/StatsPanel";
 import { SettingsPanel } from "../ui/SettingsPanel";
-import { hidePlayer } from "../settings";
-import { PLAYER_MENU_EVENT, TOAST_EVENT, type ActionState, type OrderStatus, type ParkScene } from "./ParkScene";
+import { getSettings, hidePlayer } from "../settings";
+import { ANNOUNCE_EVENT, PLAYER_MENU_EVENT, TOAST_EVENT, type ActionState, type OrderStatus, type ParkScene } from "./ParkScene";
 
 const HEALTH_INTERVAL_MS = 3000;
 const TOAST_MS = 3000;
+/** 관리자 공지 표시 시간 */
+const ANNOUNCE_MS = 10_000;
 /** 화면 가장자리와 터치 버튼 사이 간격, 버튼끼리 간격 */
 const EDGE = 12;
 const BUTTON_GAP = 8;
@@ -46,11 +49,18 @@ export class UIScene extends Phaser.Scene {
   private emoteButton!: Phaser.GameObjects.Image;
   /** 오른쪽 위 미니맵 (6-3) */
   private minimap!: Minimap;
+  /** 미니맵 왼쪽 '오늘의 공원' (7-3) */
+  private statsPanel!: StatsPanel;
+  /** 관리자 공지 (화면 위 가운데, 7-2) */
+  private announceText!: Phaser.GameObjects.Text;
+  private announceTimer?: Phaser.Time.TimerEvent;
   /** 왼쪽 위 채널 표시를 누르면 열리는 채널 목록 (6-4) */
   private channelList!: ChannelList;
   /** 미니맵 아래 '설정' 버튼과 설정창 (6-5) */
   private settingsButton!: Phaser.GameObjects.Text;
   private settingsPanel!: SettingsPanel;
+  /** 설정 버튼 왼쪽 스피커 버튼: 소리 켜기·끄기 (6-2) */
+  private muteButton!: Phaser.GameObjects.Image;
   /** 다른 사람을 누르면 뜨는 숨기기 메뉴 (6-6) */
   private playerMenu!: PlayerMenu;
   /** 숨기기 메뉴를 연 누름 (같은 누름이 공원 클릭으로도 들어와서 메뉴를 바로 닫지 않게) */
@@ -74,12 +84,23 @@ export class UIScene extends Phaser.Scene {
       (id) => park.switchChannel(id),
     );
     this.minimap = new Minimap(this, park.truckPlacements);
+    this.statsPanel = new StatsPanel(this);
+    this.announceText = this.add
+      .text(0, 0, "", { fontSize: "15px", color: "#ffffff", backgroundColor: "#e8823a", padding: { x: 12, y: 8 }, align: "center" })
+      .setOrigin(0.5, 0)
+      .setVisible(false);
     this.settingsPanel = new SettingsPanel(this);
     this.settingsButton = this.add
       .text(0, 0, t("settings.button"), { ...PANEL_STYLE, color: "#1b2433" })
       .setOrigin(1, 0)
       .setInteractive({ useHandCursor: true })
       .on("pointerdown", () => this.settingsPanel.setVisible(!this.settingsPanel.visible));
+    this.muteButton = this.add
+      .image(0, 0, GENERATED.speaker)
+      .setOrigin(1, 0)
+      .setScale(2)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => park.toggleMute());
     this.playerMenu = new PlayerMenu(this, (nickname) => {
       hidePlayer(nickname);
       this.showToast(t("player.hidden", { nickname }));
@@ -140,7 +161,9 @@ export class UIScene extends Phaser.Scene {
 
     park.events.on(TOAST_EVENT, this.showToast, this);
     park.events.on(PLAYER_MENU_EVENT, this.openPlayerMenu, this);
+    park.events.on(ANNOUNCE_EVENT, this.showAnnouncement, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      park.events.off(ANNOUNCE_EVENT, this.showAnnouncement, this);
       park.events.off(TOAST_EVENT, this.showToast, this);
       park.events.off(PLAYER_MENU_EVENT, this.openPlayerMenu, this);
     });
@@ -154,8 +177,14 @@ export class UIScene extends Phaser.Scene {
     this.channelList.place(EDGE, this.statusText.y + this.statusText.height + 4);
     this.minimap.layout(width - EDGE, EDGE, width, height);
     this.minimap.update(park.myPosition, this.time.now);
+    this.statsPanel.layout(width - EDGE - this.minimap.width - BUTTON_GAP, EDGE, width);
     const settingsTop = EDGE + this.minimap.height + 6;
     this.settingsButton.setPosition(width - EDGE, settingsTop);
+    // 스피커 아이콘 (24px) 을 설정 버튼과 가운데 높이를 맞춰 그 왼쪽에
+    const muted = getSettings().muted;
+    this.muteButton
+      .setTexture(muted ? GENERATED.speakerMuted : GENERATED.speaker)
+      .setPosition(width - EDGE - this.settingsButton.width - BUTTON_GAP, settingsTop + (this.settingsButton.height - this.muteButton.displayHeight) / 2);
     this.settingsPanel.place(width - EDGE, settingsTop + this.settingsButton.height + 4, height);
     this.updateOrder(park.orderStatus);
     this.updateActions(park.actions, width, height);
@@ -181,7 +210,8 @@ export class UIScene extends Phaser.Scene {
     const total = this.orderText.width + 4 + this.cancelButton.width;
     // 좁은 화면에서 미니맵과 겹치면 채널 표시 아래 왼쪽으로
     const centered = Math.round((this.scale.width - total) / 2);
-    const fits = centered + total + BUTTON_GAP <= this.scale.width - EDGE - this.minimap.width;
+    const rightLimit = this.scale.width - EDGE - this.minimap.width - BUTTON_GAP - this.statsPanel.width;
+    const fits = centered + total + BUTTON_GAP <= rightLimit;
     const left = fits ? centered : EDGE;
     const top = fits ? EDGE : this.statusText.y + this.statusText.height + 4;
     this.orderText.setPosition(left + this.orderText.width, top);
@@ -221,6 +251,20 @@ export class UIScene extends Phaser.Scene {
     this.emotePalette.place(button.x, button.y - button.displayHeight - BUTTON_GAP);
   }
 
+  /** 관리자 공지: 화면 위 가운데에 10초. 좁은 화면에서는 줄바꿈. 위쪽 패널들(미니맵 등)보다 아래 */
+  private showAnnouncement(text: string): void {
+    const { width } = this.scale;
+    const top = EDGE + Math.max(this.minimap.height, 40) + 40;
+    this.announceText
+      .setText(t("announce.prefix", { text }))
+      .setWordWrapWidth(Math.min(560, width - EDGE * 4))
+      .setPosition(width / 2, top)
+      .setDepth(10)
+      .setVisible(true);
+    this.announceTimer?.remove();
+    this.announceTimer = this.time.delayedCall(ANNOUNCE_MS, () => this.announceText.setVisible(false));
+  }
+
   private openPlayerMenu(nickname: string, pointer: Phaser.Input.Pointer): void {
     this.playerMenuDownTime = pointer.downTime;
     this.playerMenu.show(nickname, pointer.x, pointer.y);
@@ -239,6 +283,8 @@ export class UIScene extends Phaser.Scene {
       this.statusText.setText(t("status.channel", { channel: net.channel || "…", players: net.players })).setColor(COLOR.ok);
     } else if (net.leaveReason === "duplicateLogin") {
       this.statusText.setText(t("status.duplicateLogin")).setColor(COLOR.bad);
+    } else if (net.leaveReason === "kicked") {
+      this.statusText.setText(t("status.kicked")).setColor(COLOR.bad);
     } else {
       this.statusText.setText(t(this.health === "disconnected" ? "status.serverDown" : "status.disconnected")).setColor(COLOR.bad);
     }

@@ -25,6 +25,7 @@
     "gen:food": "tsx scripts/gen-placeholder-food.ts",
     "gen:emote": "tsx scripts/gen-placeholder-emotes.ts",
     "gen:cat": "tsx scripts/gen-cat.ts",
+    "gen:sound": "tsx scripts/gen-sounds.ts",
     "gen:guide": "tsx scripts/gen-character-guide.ts",
     "check:character": "tsx scripts/check-character-sheet.ts",
     "preview:character": "tsx scripts/preview-character-sheet.ts",

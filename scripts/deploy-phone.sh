@@ -16,6 +16,11 @@ if [[ -z "${AUTH_SECRET:-}" ]] && ! grep -q '^AUTH_SECRET=.' "$ENV_FILE" 2>/dev/
   echo "AUTH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" >> "$ENV_FILE"
   echo "AUTH_SECRET 을 새로 만들어 $ENV_FILE 에 저장했습니다"
 fi
+# 관리자 키 (공지·내보내기·통계 API). 없으면 관리자 API 가 꺼지므로 처음 한 번 만든다
+if [[ -z "${ADMIN_KEY:-}" ]] && ! grep -q '^ADMIN_KEY=.' "$ENV_FILE" 2>/dev/null; then
+  echo "ADMIN_KEY=$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")" >> "$ENV_FILE"
+  echo "ADMIN_KEY 를 새로 만들어 $ENV_FILE 에 저장했습니다 (관리자 API 호출할 때 x-admin-key 헤더로)"
+fi
 
 pnpm install --frozen-lockfile
 pnpm build

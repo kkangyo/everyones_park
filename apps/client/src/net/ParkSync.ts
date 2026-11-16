@@ -8,6 +8,7 @@ import {
   TICK_MS,
   readAppearance,
   type Appearance,
+  type AnnounceMessage,
   type EatMessage,
   type EmoteMessage,
   type Facing,
@@ -34,7 +35,7 @@ import { LagSim } from "./LagSim";
 export type NetStatus = "online" | "offline";
 
 /** 연결이 끊긴 이유 (화면 안내 문구 선택용) */
-export type LeaveReason = "duplicateLogin" | "disconnected";
+export type LeaveReason = "duplicateLogin" | "kicked" | "disconnected";
 
 export interface NetInfo {
   status: NetStatus;
@@ -105,6 +106,8 @@ export class ParkSync {
   onOwnEmote?: (id: string, remainingMs: number) => void;
   /** 동물을 눌렀음 (쓰다듬기) */
   onAnimalTap?: (id: string) => void;
+  /** 관리자 공지 (7-2) */
+  onAnnounce?: (text: string) => void;
   /** 다른 사람 캐릭터를 눌렀음 (숨기기 메뉴, 6-6). pointer: 누른 화면 위치 */
   onPlayerTap?: (nickname: string, pointer: Phaser.Input.Pointer) => void;
 
@@ -215,11 +218,14 @@ export class ParkSync {
     });
 
     room.onMessage(MSG.notice, (notice: NoticeMessage) => this.lag.run(() => this.onNotice?.(notice)));
+    room.onMessage(MSG.announce, (msg: AnnounceMessage) => {
+      if (typeof msg?.text === "string") this.onAnnounce?.(msg.text);
+    });
 
     room.onLeave((code) => {
       this.status = "offline";
       this.leaveCode = code;
-      this.leaveReason = code === CLOSE_CODE.duplicateLogin ? "duplicateLogin" : "disconnected";
+      this.leaveReason = code === CLOSE_CODE.duplicateLogin ? "duplicateLogin" : code === CLOSE_CODE.kicked ? "kicked" : "disconnected";
       for (const r of this.remotes.values()) r.view.destroy();
       this.remotes.clear();
       for (const a of this.animals.values()) a.view.destroy();

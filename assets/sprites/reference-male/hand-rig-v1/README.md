@@ -12,7 +12,7 @@
 ## 제작과 재현
 
 1. `pnpm exec tsx scripts/prepare-handsome-hand-edit.ts`: 최초 백업 `before-body.png`, `before-outfit.png` 및 carry 0열 묶음/접점 가이드 준비. 이미 있는 백업은 덮어쓰지 않는다.
-2. 내장 `image_gen`으로 `carry-before-x8.png`를 `carry-grip-target-x8.png`와 함께 편집했다. 정확한 프롬프트는 `edit-prompt.txt`, 생성 도구 원본은 `carry-edited.png`. 머리와 셀 배치가 완전히 보존되지는 않으므로 생성 이미지를 런타임 PNG로 직접 사용하지 않는다.
+2. 내장 `image_gen`으로 `carry-before-x8.png`를 `carry-grip-target-x8.png`와 함께 편집했다. 생성 도구 원본은 `carry-edited.png`. 머리와 셀 배치가 완전히 보존되지는 않으므로 생성 이미지를 런타임 PNG로 직접 사용하지 않는다.
 3. `pnpm fix:handsome-hands`: 생성 보정본의 검은 재킷 부위를 셀별로 샘플링하고 기존 재킷 색에 맞춘다. 이후 손목/소매와 피부 접점을 공통 hand-rig 좌표에 맞게 조립한다. 생성 이미지의 변경된 머리·발은 가져오지 않는다. 몸체 픽셀이 있는 곳에는 의상을 칠하지 않는다. 결과 PNG와 검토 자료를 갱신하고 검사한다.
 
 정면·옆·앞대각선의 양손은 각각 공통 접점에 맞춘다. 뒤쪽 방향에는 손 피부를 그리지 않고 어깨/팔꿈치로 팔 자세를 표현한다. 모든 섭취 단계에 같은 음식 (6,9) 부착점을 쓴다. 손 1·3열 y -1, 앉기 y +3은 누적 적용한다. 0·2열 팔은 동일하고 1·3열은 같은 팔을 1px 올린 것이다.

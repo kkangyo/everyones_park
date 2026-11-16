@@ -10,7 +10,7 @@ import { seatsFromTiled, seatStandPoint, distanceToSeat, SIT_RANGE_PX } from "..
 import { WINTER_TILE as T, MAIN_LOOP } from "./winter-park-layout";
 
 type Layer = { name: string; type: string; data?: number[]; objects?: { name: string; x: number; y: number; properties?: { name: string; value: unknown }[] }[] };
-export type ParkMap = { width: number; height: number; tilewidth: number; tileheight: number; layers: Layer[] };
+export type ParkMap = { width: number; height: number; tilewidth: number; tileheight: number; editor3d?: { trees: Record<string, string>; treeScales?: Record<string, number>; lamps: { x: number; y: number; style?: string }[]; heights: Record<string, number> }; layers: Layer[] };
 export interface ParkMapCheck { errors: string[]; problems: string[]; report: Record<string, unknown> }
 
 const MAX_GID = 16;
@@ -25,6 +25,17 @@ export function checkParkMap(raw: ParkMap): ParkMapCheck {
   for (const l of raw.layers?.filter((l) => l.type === "tilelayer") ?? []) {
     if (l.data?.length !== raw.width * raw.height) errors.push(`${l.name} 칸 수가 지도 크기와 다름`);
     else if (!l.data.every((n) => Number.isInteger(n) && n >= 0 && n <= MAX_GID)) errors.push(`${l.name} 에 모르는 칸 번호가 있음`);
+  }
+  if (raw.editor3d) {
+    const e = raw.editor3d, validKey = (k: string) => /^\d+$/.test(k) && Number(k) < raw.width * raw.height;
+    if (!e.trees || !e.heights || !Array.isArray(e.lamps)) errors.push("3D 편집 데이터 형식이 잘못됨");
+    else {
+      if (Object.entries(e.trees).some(([k, v]) => !validKey(k) || !["pine", "spruce", "bare0", "bare1", "bare2", "bare3", "bare4", "bare5", "bare6", "bare7"].includes(v))) errors.push("나무 종류 또는 위치가 잘못됨");
+      if (e.treeScales !== undefined && (!e.treeScales || typeof e.treeScales !== "object" || Array.isArray(e.treeScales) || Object.entries(e.treeScales).some(([k, v]) => !validKey(k) || !Number.isFinite(v) || v < 0.5 || v > 2))) errors.push("나무 크기는 50~200% 범위여야 함");
+      if (Object.entries(e.heights).some(([k, v]) => !validKey(k) || !Number.isFinite(v) || v < -2 || v > 3)) errors.push("지형 높이가 허용 범위(-2~3)를 벗어남");
+      if (e.lamps.some((o) => o.style !== undefined && !["basic", "copper", "globe", "ornate", "hanging", "twin", "shade", "triple", "modern"].includes(o.style))) errors.push("가로등 종류가 잘못됨");
+      if (e.lamps.some((o) => !Number.isFinite(o.x) || !Number.isFinite(o.y) || o.x < 32 || o.y < 32 || o.x >= (raw.width - 1) * 32 || o.y >= (raw.height - 1) * 32)) errors.push("가로등 위치가 지도 밖임");
+    }
   }
   const spawn = layer("spawns")?.objects?.find((o) => o.name === "entrance");
   if (!spawn) errors.push("시작 위치(entrance)가 없음");

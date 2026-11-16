@@ -8,11 +8,13 @@ export interface Settings {
   showNicknames: boolean;
   /** 소리 크기 0–1 (게임 전체 볼륨) */
   volume: number;
+  /** 음소거 (화면의 스피커 버튼·M 키, 6-2) */
+  muted: boolean;
   /** 내 화면에서 숨긴 사람의 닉네임 (보이는 그대로. 비교는 nicknameKey 로) */
   hidden: string[];
 }
 
-const DEFAULTS: Settings = { showNicknames: true, volume: 0.7, hidden: [] };
+const DEFAULTS: Settings = { showNicknames: true, volume: 0.7, muted: false, hidden: [] };
 
 let current = load();
 let hiddenKeys = new Set(current.hidden.map(nicknameKey));
@@ -25,6 +27,7 @@ function load(): Settings {
       return {
         showNicknames: typeof raw.showNicknames === "boolean" ? raw.showNicknames : DEFAULTS.showNicknames,
         volume: typeof raw.volume === "number" && raw.volume >= 0 && raw.volume <= 1 ? raw.volume : DEFAULTS.volume,
+        muted: typeof raw.muted === "boolean" ? raw.muted : DEFAULTS.muted,
         hidden: Array.isArray(raw.hidden) ? raw.hidden.filter((n): n is string => typeof n === "string") : [],
       };
     }
