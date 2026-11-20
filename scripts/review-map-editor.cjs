@@ -146,8 +146,36 @@ async function signature(page, getWorld) {
       t.EDIT.key('delete', { preventDefault() {} });
       if (t.MAP.editor3d.treeScales[i + 1] !== undefined) throw Error('Delete left size metadata');
     }, point);
+    // Ground variants share base tile IDs but must retain distinct saved textures.
+    assert.equal(await editor.locator('#eTile option').count(), 25);
+    await editor.locator('#eTile').selectOption('grass-bare');
+    assert.equal(await editor.evaluate(() => window.__editorReview.EDIT.tool), 'tile');
+    await clickTile(point.x + 0.5, point.z + 0.5);
+    await editor.evaluate(() => window.__editorReview.rebuildAll());
+    assert.equal(await editor.evaluate((p) => { const t = window.__editorReview; return t.MAP.editor3d.groundStyles[p.z*t.MAP.width+p.x]; },point),'grass-bare');
+    await editor.locator('#eTile').selectOption('grass-deep');
+    await clickTile(point.x + 0.5, point.z + 0.5);
+    assert.equal(await editor.evaluate((p) => { const t = window.__editorReview; return t.MAP.editor3d.groundStyles[p.z*t.MAP.width+p.x]; },point),'grass-deep');
+    await editor.evaluate(() => {const t=window.__editorReview;t.undo();t.undo();});
+    await editor.locator('#eTile').selectOption('brick-brown');
+    await clickTile(point.x + 0.5, point.z + 0.5);
+    await editor.evaluate(() => window.__editorReview.rebuildAll());
+    const groundCheck = await editor.evaluate(async (p) => {
+      const t=window.__editorReview, i=p.z*t.MAP.width+p.x, ground=t.MAP.layers.find(l=>l.name==='ground').data, obst=t.MAP.layers.find(l=>l.name==='obstacles').data;
+      if(ground[i]!==3 || obst[i]!==0)throw Error('Paved ground changed collision');
+      const read=(world)=>{let image;world.root.traverse(o=>{if(!image&&o.material?.map?.image?.width===t.MAP.width*16)image=o.material.map.image;});if(!image)throw Error('Ground texture missing');return [...image.getContext('2d').getImageData(p.x*16,p.z*16,16,16).data];};
+      const expected=read(t.world()), restored=t.reloadWorld();const actual=read(restored);restored.dispose();
+      if(expected.some((n,i)=>n!==actual[i]))throw Error('Ground texture lost on JSON reload');
+      const r=await fetch('/__mapedit/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t.MAP)});if(!r.ok)throw Error('New ground failed validation');
+      t.undo(); t.redo(); if(t.MAP.editor3d.groundStyles[i]!=='brick-brown')throw Error('Ground redo failed');t.undo();
+      return {persistentGround:true};
+    },point);
+    await editor.locator('#eTile').selectOption('5');await clickTile(point.x+.5,point.z+.5);
+    await editor.locator('#eTile').selectOption('shore-pebbles');await clickTile(point.x+.5,point.z+.5);
+    assert.equal(await editor.evaluate(p=>{const t=window.__editorReview;return t.MAP.layers.find(l=>l.name==='obstacles').data[p.z*t.MAP.width+p.x];},point),0,'Replacing ice with shore must clear collision');
+    await editor.evaluate(()=>{const t=window.__editorReview;t.undo();t.undo();});
     assert.deepEqual(await signature(editor, 'window.__editorReview.world()'), original, 'Click deletion must clear both objects and collision tiles');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ sceneryMatches: true, meshes: original.nodes.length, ...edits, errors }));
+    console.log(JSON.stringify({ sceneryMatches: true, meshes: original.nodes.length, ...edits, ...groundCheck, errors }));
   } finally { await browser.close(); }
 })().catch((e) => { console.error(e); process.exit(1); });

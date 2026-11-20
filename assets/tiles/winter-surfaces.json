@@ -1,0 +1,256 @@
+{
+  "tileSize": 32,
+  "columns": 5,
+  "tiles": [
+    {
+      "id": "1",
+      "name": "눈밭 · 완전히 덮인 눈",
+      "group": "눈과 잔디",
+      "baseTile": 1,
+      "x": 0,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "2",
+      "name": "눈밭 · 푸른 그늘",
+      "group": "눈과 잔디",
+      "baseTile": 2,
+      "x": 32,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "grass-bare",
+      "name": "겨울 잔디 · 눈 없음",
+      "group": "눈과 잔디",
+      "baseTile": 1,
+      "x": 64,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "grass-dusting",
+      "name": "겨울 잔디 · 눈 조금",
+      "group": "눈과 잔디",
+      "baseTile": 1,
+      "x": 96,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "grass-patchy",
+      "name": "겨울 잔디 · 반쯤 쌓인 눈",
+      "group": "눈과 잔디",
+      "baseTile": 1,
+      "x": 128,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "grass-deep",
+      "name": "겨울 잔디 · 눈 많이",
+      "group": "눈과 잔디",
+      "baseTile": 1,
+      "x": 0,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "3",
+      "name": "기존 다져진 산책로",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 32,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "brick-brown",
+      "name": "갈색 벽돌 블록",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 64,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "brick-brown-snow",
+      "name": "갈색 벽돌 · 틈새에 쌓인 눈",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 96,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "block-gray",
+      "name": "회색 보도 블록",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 128,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "block-gray-snow",
+      "name": "회색 블록 · 가장자리 눈",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 0,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "stone-light",
+      "name": "밝은 석재 판석",
+      "group": "산책로",
+      "baseTile": 4,
+      "x": 32,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "gravel",
+      "name": "고운 자갈 산책로",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 64,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "asphalt",
+      "name": "짙은 회색 포장길",
+      "group": "산책로",
+      "baseTile": 3,
+      "x": 96,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "edge-brick",
+      "name": "잔디 ↔ 갈색 벽돌 경계",
+      "group": "잔디와 길 연결",
+      "baseTile": 3,
+      "x": 128,
+      "y": 64,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "edge-gray",
+      "name": "잔디 ↔ 회색 블록 경계",
+      "group": "잔디와 길 연결",
+      "baseTile": 3,
+      "x": 0,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "shore-earth",
+      "name": "호숫가 · 얼어붙은 흙과 눈",
+      "group": "호수 주변",
+      "baseTile": 1,
+      "x": 32,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "shore-pebbles",
+      "name": "호숫가 · 둥근 조약돌",
+      "group": "호수 주변",
+      "baseTile": 1,
+      "x": 64,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "shore-stone",
+      "name": "호숫가 · 석축 가장자리",
+      "group": "호수 주변",
+      "baseTile": 3,
+      "x": 96,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "shore-reeds",
+      "name": "호숫가 · 마른 풀과 눈",
+      "group": "호수 주변",
+      "baseTile": 1,
+      "x": 128,
+      "y": 96,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "shore-snow",
+      "name": "호숫가 · 푸른 눈 둔덕",
+      "group": "호수 주변",
+      "baseTile": 1,
+      "x": 0,
+      "y": 128,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "5",
+      "name": "얼어붙은 호수 · 통행 불가",
+      "group": "호수 주변",
+      "baseTile": 5,
+      "x": 32,
+      "y": 128,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "15",
+      "name": "목교 · 나무 데크",
+      "group": "기존 바닥",
+      "baseTile": 15,
+      "x": 64,
+      "y": 128,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "4",
+      "name": "기존 광장",
+      "group": "기존 바닥",
+      "baseTile": 4,
+      "x": 96,
+      "y": 128,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "16",
+      "name": "기존 무대",
+      "group": "기존 바닥",
+      "baseTile": 16,
+      "x": 128,
+      "y": 128,
+      "width": 32,
+      "height": 32
+    }
+  ]
+}

@@ -140,7 +140,7 @@ function heightAt(x, z) {
     const o = (py * CW + pxl) * 4, sh = shadeAt(pxl, py); px[o] = Math.min(255, col[0] * sh); px[o + 1] = Math.min(255, col[1] * sh); px[o + 2] = Math.min(255, col[2] * sh); px[o + 3] = 255;
   }
   g.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  const tex = new THREE.CanvasTexture(window.ParkGround.compose(c, MAP, shadeAt)); tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   const geo = new THREE.PlaneGeometry(MW, MH, MW * HR, MH * HR).rotateX(-Math.PI / 2), gp = geo.attributes.position;
   for (let k = 0; k < gp.count; k++) gp.setY(k, heightAt(gp.getX(k) + MW / 2, gp.getZ(k) + MH / 2));
   geo.computeVertexNormals();

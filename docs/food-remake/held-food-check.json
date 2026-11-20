@@ -1,0 +1,22 @@
+{
+  "foods": 17,
+  "frames": 51,
+  "cachedMaterials": 51,
+  "characters": [
+    "meshy-mint",
+    "meshy-boy",
+    "meshy-curly",
+    "SD fallback"
+  ],
+  "stages": 3,
+  "checks": [
+    "HD asset load",
+    "transparent frames",
+    "cached materials",
+    "stage switch in both hands",
+    "world-space grip attachment",
+    "front and rotated camera rendering"
+  ],
+  "pageErrors": [],
+  "failedFoodRequests": []
+}

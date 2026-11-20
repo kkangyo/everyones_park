@@ -10,7 +10,7 @@
  *
  * 최종 그림으로 바꿀 때도 같은 크기·프레임 배치·파일 이름을 지키면 코드 수정 없이 교체된다.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HAND_RIG } from "../packages/shared/src/hand-rig";
@@ -196,6 +196,8 @@ function write(path: string, canvas: Canvas): void {
 }
 
 for (const id of MENU.keys()) {
+  // Preserve the reviewed replacement art; this command also regenerates trucks.
+  if (existsSync(resolve(ROOT, `assets/sprites/food/${id}.png`))) continue;
   const paint = FOOD_PAINTERS[id];
   if (!paint) throw new Error(`메뉴 "${id}" 의 그림 설정(FOOD_PAINTERS)이 없습니다`);
   const canvas = new Canvas(FOOD * EAT_STAGES, FOOD);

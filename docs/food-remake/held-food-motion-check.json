@@ -1,0 +1,88 @@
+{
+  "foods": 17,
+  "frames": 51,
+  "cachedMaterials": 51,
+  "characters": [
+    "long",
+    "short",
+    "curly",
+    "fallback"
+  ],
+  "stages": 3,
+  "motion": [
+    {
+      "left": {
+        "drift": 0,
+        "angle": 5.16191365590357e-8,
+        "lift": 0.16743807180425174,
+        "otherDrift": 0,
+        "maxStep": 0.007810310044347534,
+        "headDistance": 0.2919697111514941
+      },
+      "right": {
+        "drift": 0,
+        "angle": 0,
+        "lift": 0.19078842295815035,
+        "otherDrift": 0,
+        "maxStep": 0.008493909919859845,
+        "headDistance": 0.2919109169889248
+      }
+    },
+    {
+      "left": {
+        "drift": 0,
+        "angle": 0,
+        "lift": 0.1889511214399454,
+        "otherDrift": 0,
+        "maxStep": 0.007885057392479534,
+        "headDistance": 0.29219820994314055
+      },
+      "right": {
+        "drift": 0,
+        "angle": 4.2146848510894035e-8,
+        "lift": 0.2103225196562163,
+        "otherDrift": 0,
+        "maxStep": 0.00892476076455984,
+        "headDistance": 0.29175265054439503
+      }
+    },
+    {
+      "left": {
+        "drift": 0,
+        "angle": 0,
+        "lift": 0.21055301123597048,
+        "otherDrift": 0,
+        "maxStep": 0.00883072858400134,
+        "headDistance": 0.29211183130854657
+      },
+      "right": {
+        "drift": 0,
+        "angle": 0,
+        "lift": 0.22756455718952595,
+        "otherDrift": 0,
+        "maxStep": 0.009681462891087607,
+        "headDistance": 0.2920388069289293
+      }
+    },
+    {
+      "left": {
+        "drift": 0,
+        "angle": 0,
+        "lift": 0.2770017803972107,
+        "otherDrift": 0,
+        "maxStep": 0.01331355506594023,
+        "headDistance": 0.29799440350984596
+      },
+      "right": {
+        "drift": 0,
+        "angle": 0,
+        "lift": 0.2770017803972108,
+        "otherDrift": 0,
+        "maxStep": 0.01331355506594023,
+        "headDistance": 0.29799440350984596
+      }
+    }
+  ],
+  "errors": [],
+  "failures": []
+}

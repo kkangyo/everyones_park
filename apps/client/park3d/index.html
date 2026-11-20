@@ -48,6 +48,8 @@
   body.edit #badge { background: #c2453c; }
   #edit { left: 12px; top: calc(env(safe-area-inset-top) + 104px); flex-direction: column; width: 174px; max-height: calc(100dvh - 200px); overflow-y: auto; }
   #edit button { text-align: left; padding: 7px 9px; }
+  #eTilePreview { display: block; margin: 6px auto; border: 1px solid #c7c4be; border-radius: 8px; }
+  #edit select { max-width: 100%; }
   #edit input[type="range"] { width: 100%; }
   #edit button:disabled { opacity: .4; }
   #edit hr { width: 100%; border: 0; border-top: 1px dashed #ddd6e8; margin: 2px 0; }
@@ -154,6 +156,7 @@ window.addEventListener("error", (e) => window.bootFail(/WebGL/i.test(e.message 
 <script src="sprites-data.js"></script>
 <script src="/park3d/lamps.js"></script>
 <script src="/park3d/trees.js"></script>
+<script src="/park3d/ground.js"></script>
 <script src="/park3d/world.js"></script>
 <script>
 (() => {
@@ -163,6 +166,8 @@ window.addEventListener("error", (e) => window.bootFail(/WebGL/i.test(e.message 
 const $ = (id) => document.getElementById(id);
 if (!window.THREE || !window.PARK || !window.SPRITES) return window.bootFail("공원을 불러오지 못했어요");
 const PARK = window.PARK, SPR = window.SPRITES;
+// Load reviewed food sheets from assets instead of the old embedded placeholders.
+for (const key of Object.keys(SPR)) if (key.startsWith("food-")) SPR[key] = `/sprites/food/${key.slice(5)}.png`;
 if (window.MAPEDIT_MAP) PARK.map = window.MAPEDIT_MAP; // 편집 모드: 저장된 디스크 지도로 (내장본은 지난 저장 때 것)
 const EDIT = { on: !!window.MAPEDIT_MAP }; // 지도 편집 모드 상태·함수 (맨 아래 "지도 편집 모드"에서 채운다)
 const MAP = PARK.map, MW = MAP.width, MH = MAP.height;
@@ -511,7 +516,7 @@ function updatePlayer(dt) {
 // ───────── 간식 ─────────
 const nearestTruck = () => { let best = null, bd = 1.6; for (const t of trucks) { const d = Math.hypot(state.pos.x - t.front.x, state.pos.z - t.front.z); if (d < bd) { bd = d; best = t; } } return best; };
 const full = () => state.hands.length + (state.cooking ? 1 : 0) >= 2;
-const foodIcon = (id) => `background-image:url(${SPR["food-" + id]})`;
+const foodIcon = (id) => `background-image:url(/sprites/food-hd/${id}.png)`;
 function openMenu(t) {
   if (!t) return; if (full()) { toast("손이 꽉 찼어요", 1500); return; }
   state.truck = t; state.menuOpen = true; state.path = []; player.facing = "up";
@@ -908,7 +913,7 @@ const mapBase = document.createElement("canvas"); mapBase.width = MW * MS; mapBa
 function drawMapBase() {
   const g = mapBase.getContext("2d"), col = { [G.snow]: "#f2f5fb", [G.snow2]: "#eaeff8", [G.path]: "#d9cfc6", [G.plaza]: "#e6d9cc", [G.ice]: "#a9d3ee", [G.outside]: "#8f9bbd", [G.bridge]: "#b69b72", [G.stage]: "#c9c2b6" };
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
-    const o = OBST[y * MW + x]; let c = col[groundAt(x, y)] || col[G.snow];
+    const o = OBST[y * MW + x]; let c = window.ParkGround.byId.get(MAP.editor3d?.groundStyles?.[y * MW + x])?.color || col[groundAt(x, y)] || col[G.snow];
     if (o === G.tree) c = "#4f9b7c"; else if (o === G.garden) c = "#79b596"; else if (o === G.rock) c = "#a9a6b8"; else if (o === G.fence) c = "#b89070"; else if (o >= G.benchDown && o <= G.benchLeft) c = "#c8946a"; else if (o === G.wall && inside[y * MW + x]) c = "#f2786a";
     g.fillStyle = c; g.fillRect(x * MS, y * MS, MS, MS);
   }
@@ -1030,7 +1035,10 @@ if (EDIT.on) {
   $("badge").textContent = "지도 편집 · 메인 3D";
   const TOOLS = [["tree", "🌲 나무", G.tree], ["rock", "🪨 바위", G.rock], ["hedge", "🌿 생울타리", G.garden], ["fence", "🪵 울타리", G.fence], ["erase", "🧽 삭제", 0], ["move", "✋ 선택·이동", null], ["tile", "▦ 바닥 타일", null], ["bench", "🪑 벤치 설치", null], ["lamp", "💡 가로등 설치", null], ["truck", "🚚 트럭 배치", null], ["raise", "⛰ 높이 올리기", null], ["lower", "⬇ 높이 내리기", null]];
   const DECOR = new Set([G.tree, G.rock, G.garden, G.fence]); // 칠하고 지울 수 있는 칸. 얼음·벤치·트럭·공원 밖 벽은 건드리지 않는다
-  const BENCH_TILE = { down: G.benchDown, up: G.benchUp, left: G.benchLeft }, BENCH_TURN = { down: "left", left: "up", up: "down" };
+  // 3D 벤치는 늘 카메라 쪽(아래 +z · 오른쪽 +x)을 보므로 돌리기는 아래 ↔ 오른쪽만. 위·왼쪽(예전 지도)은 같은 모양으로 그려진다.
+  // 지도 방향이 3D 와 다르면 서버가 그 방향 앞(= 3D 에서는 벤치 뒤)에 일으켜 세운다
+  const BENCH_TILE = { down: G.benchDown, up: G.benchUp, left: G.benchLeft, right: G.benchLeft }, BENCH_TURN = { down: "right", right: "down", up: "right", left: "down" };
+  const benchSide = (f) => f === "left" || f === "right";
   const TILE_NAME = { 0: "빈 땅", [G.tree]: "나무", [G.rock]: "바위", [G.garden]: "생울타리", [G.fence]: "울타리", [G.ice]: "얼음", [G.wall]: "트럭·공원 밖", [G.benchDown]: "벤치", [G.benchUp]: "벤치", [G.benchLeft]: "벤치" };
   MAP.editor3d ||= { trees: {}, lamps: [], heights: {} };
   MAP.editor3d.treeScales ||= {};
@@ -1041,10 +1049,17 @@ if (EDIT.on) {
   // 도구 막대
   const bar = document.createElement("div"); bar.className = "bar"; bar.id = "edit";
   bar.innerHTML = TOOLS.map(([id, label], i) => `<button data-tool="${id}" title="${i + 1}">${label}</button>`).join("") +
-    '<hr><label>나무 종류<select id="eTree"></select></label><label>나무 크기 <output id="eTreeSizeLabel">100%</output><input id="eTreeSize" type="range" min="50" max="200" step="10" value="100" aria-label="나무 크기"></label><button id="eTreeSizeApply" disabled>선택 나무 크기 적용</button><label>바닥<select id="eTile"><option value="1">눈</option><option value="2">눈 2</option><option value="3">산책로</option><option value="4">광장</option><option value="5">얼음</option><option value="15">다리</option><option value="16">무대</option></select></label><label>가로등 종류<select id="eLamp"></select></label><button id="eLampApply">선택 가로등에 적용</button><button id="eDelete" title="삭제할 타일을 클릭하세요">🧽 삭제 모드</button><hr><button id="eBrush" title="B">붓 1칸</button><button id="eTurn" title="R" disabled>↻ 벤치 돌리기</button><button id="eGrid" title="G">▦ 막힌 칸</button>' +
+    '<hr><label>나무 종류<select id="eTree"></select></label><label>나무 크기 <output id="eTreeSizeLabel">100%</output><input id="eTreeSize" type="range" min="50" max="200" step="10" value="100" aria-label="나무 크기"></label><button id="eTreeSizeApply" disabled>선택 나무 크기 적용</button><label>바닥 종류<select id="eTile"></select><canvas id="eTilePreview" width="128" height="128" aria-label="선택한 바닥 타일 미리보기"></canvas></label><label>가로등 종류<select id="eLamp"></select></label><button id="eLampApply">선택 가로등에 적용</button><button id="eDelete" title="삭제할 타일을 클릭하세요">🧽 삭제 모드</button><hr><button id="eBrush" title="B">붓 1칸</button><button id="eTurn" title="R" disabled>↻ 벤치 돌리기</button><button id="eGrid" title="G">▦ 막힌 칸</button>' +
     '<hr><button id="eUndo" title="Ctrl+Z" disabled>↶ 되돌리기</button><button id="eRedo" title="Ctrl+Shift+Z" disabled>↷ 다시</button><button id="eCheck">🔎 점검</button><button id="eSave" class="save clean" title="Ctrl+S">💾 저장</button>';
   document.body.append(bar);
   $("eTree").innerHTML = window.ParkWorld.trees.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
+  for (const group of [...new Set(window.ParkGround.styles.map((s) => s.group))]) {
+    const options = document.createElement("optgroup"); options.label = group;
+    for (const style of window.ParkGround.styles.filter((s) => s.group === group)) { const option = document.createElement("option"); option.value = style.id; option.textContent = style.name; options.append(option); }
+    $("eTile").append(options);
+  }
+  $("eTile").onchange = () => { window.ParkGround.preview($("eTilePreview"), $("eTile").value); setTool("tile"); };
+  window.ParkGround.preview($("eTilePreview"), $("eTile").value);
   const treeScale = () => Number($("eTreeSize").value) / 100;
   const showTreeScale = (scale) => { $("eTreeSize").value = Math.round(scale * 100); $("eTreeSizeLabel").textContent = `${$("eTreeSize").value}%`; };
   $("eTreeSize").oninput = () => showTreeScale(treeScale());
@@ -1097,8 +1112,12 @@ if (EDIT.on) {
     let changed = false;
     if (tool === "tile") {
       if (cur && cur !== G.ice) return;
-      const id = Number($("eTile").value); changed = GROUND[i] !== id;
+      const style = window.ParkGround.byId.get($("eTile").value); if (!style) return;
+      const id = style.base, custom = style.id !== String(style.base), previous = details().groundStyles?.[key];
+      changed = GROUND[i] !== id || previous !== (custom ? style.id : undefined);
       GROUND[i] = id; OBST[i] = id === G.ice ? G.ice : 0;
+      if (custom) (details().groundStyles ||= {})[key] = style.id;
+      else if (details().groundStyles) delete details().groundStyles[key];
     } else if (tool === "raise" || tool === "lower") {
       const old = details().heights[key] || 0;
       const next = Math.max(-2, Math.min(3, old + (tool === "raise" ? 0.25 : -0.25)));
@@ -1141,11 +1160,11 @@ if (EDIT.on) {
     else { o.x += dx * 32; o.y += dz * 32; if (sel.kind === "landmark") for (const k of ["accessX", "accessY"]) { const q = o.properties.find((p) => p.name === k); if (q) q.value += (k === "accessX" ? dx : dz) * 32; } }
     rebuildAll(); }
   function turnBench() { const sel = EDIT.sel; if (sel?.kind !== "seat") return; const o = sel.o, f0 = seatFacing(o), f1 = BENCH_TURN[f0];
-    const r = rectOf(o), swap = (f0 === "left") !== (f1 === "left");
+    const r = rectOf(o), swap = benchSide(f0) !== benchSide(f1);
     if (!canPlace(r.l, r.t, swap ? r.h : r.w, swap ? r.w : r.h, sel)) return toast("벤치를 돌릴 공간이 없어요", 2000);
     mark();
     fillRect(o, BENCH_TILE[f0], BENCH_TILE[f0], 0);
-    if ((f0 === "left") !== (f1 === "left")) { const w = o.width; o.width = o.height; o.height = w; }
+    if (swap) { const w = o.width; o.width = o.height; o.height = w; }
     o.properties.find((p) => p.name === "facing").value = f1;
     const clash = fillRect(o, BENCH_TILE[f1], 0, BENCH_TILE[f1]); if (clash) toast(`벤치가 다른 장애물 ${clash}칸과 겹쳐요`, 2600); rebuildAll(); }
 

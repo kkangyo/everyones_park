@@ -1,7 +1,7 @@
 // 모두의 쉼터 메인 화면: 3D SD 겨울 공원.
 // 지도(assets/maps/park.json, 서버와 같은 파일)를 SD 3D 디오라마로 세우고, 정식 공원 채널(ParkRoom)에 들어간다.
 // 계정·이동·간식·앉기·이모티콘·고양이·채널은 2D 화면과 같은 서버 규칙(@park/shared)을 따르고, 그리는 것만 3D 인형으로 바꿨다.
-// 배경·사람·고양이·간식 모두 기본 도형으로 만든 장난감 인형 (툰 음영, 캐릭터는 외곽선). 원근 카메라가 따라온다. 1칸(32px) = 1.
+// 배경·사람·고양이는 3D 인형, 손에 든 간식은 고해상도 스프라이트. 원근 카메라가 따라온다. 1칸(32px) = 1.
 // Three.js r128 과 스프라이트(이모티콘·간식 아이콘)는 /park3d/ 의 three.min.js · sprites-data.js 를 전역으로 쓴다.
 import {
   CAT_ACTIONS,
@@ -44,6 +44,8 @@ import {
   truckPlacementsFromTiled,
 } from "@park/shared";
 import { initSideControls } from "./side-controls.js";
+import { loadFoodSprites } from "./food-sprites.js";
+import { createArmIK } from "./arm-ik.js";
 import { DEBUG, DEV_KEYS, LAG_MS } from "../debug";
 import { localized, t, translate } from "../i18n";
 import { PathFollower } from "../input/pathFollower";
@@ -69,7 +71,7 @@ initSideControls();
 const THREE = window.THREE, SPR = window.SPRITES;
 if (!THREE || !SPR) throw new Error("three.min.js / sprites-data.js 를 불러오지 못함");
 // 시험 스위치
-// MESHY_DOLL: Meshy 로 만든 인형(첨부 그림 1번, assets/models/meshy-mint.glb)을 모두에게 입힌다. 모습이 하나라 꾸미기·친구 고르기는 숨긴다
+// MESHY_DOLL: Meshy 로 만든 인형(여자 meshy-mint · 남자 meshy-boy · 곱슬머리 meshy-curly)을 입힌다. 처음 화면에서 인형만 고르고, 꾸미기·친구 바꾸기는 숨긴다
 // ACCOUNT_FORM: false 면 닉네임·PIN 입력을 숨기고, 이 기기에 저장한 손님 계정(무작위 닉네임 + PIN)으로 자동 로그인한다
 const MESHY_DOLL = true, ACCOUNT_FORM = false;
 const MAP = await fetch("/maps/park.json").then((r) => { if (!r.ok) throw new Error(`park.json ${r.status}`); return r.json(); });
@@ -100,6 +102,13 @@ scene.add(sun, sun.target);
 // ───────── 재질 ─────────
 const ramp = new THREE.DataTexture(new Uint8Array([110, 110, 110, 172, 172, 172, 228, 228, 228]), 3, 1, THREE.RGBFormat);
 ramp.minFilter = ramp.magFilter = THREE.NearestFilter; ramp.generateMipmaps = false; ramp.needsUpdate = true;
+// Meshy 인형용 부드러운 음영: 3단 계단은 Meshy 메시의 고르지 않은 노멀 때문에 얼굴·옷에 끊긴 얼룩이 생긴다.
+// 어두운 쪽 0.5 → 밝은 쪽 0.78 을 빛 방향(0~1)의 0.1~0.8 구간에서 부드럽게(smoothstep) 잇는다
+const DOLL_RAMP = (() => {
+  const N = 64, lo = 0.5, hi = 0.78, from = 0.1, to = 0.8, a = new Uint8Array(N * 3);
+  for (let i = 0; i < N; i++) { const t = Math.min(1, Math.max(0, (i / (N - 1) - from) / (to - from))), v = Math.round(255 * (lo + (hi - lo) * t * t * (3 - 2 * t))); a.set([v, v, v], i * 3); }
+  const g = new THREE.DataTexture(a, N, 1, THREE.RGBFormat); g.minFilter = g.magFilter = THREE.LinearFilter; g.generateMipmaps = false; g.needsUpdate = true; return g;
+})();
 const mats = new Map();
 const toon = (c) => { if (!mats.has(c)) mats.set(c, new THREE.MeshToonMaterial({ color: c, gradientMap: ramp })); return mats.get(c); };
 const glowM = (c) => { const k = "g" + c; if (!mats.has(k)) mats.set(k, new THREE.MeshBasicMaterial({ color: c })); return mats.get(k); };
@@ -160,7 +169,7 @@ const PAL = { // [외곽선, 그늘, 바탕, 밝은 면]
 const hexRGB = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const ramp4 = (p, t) => { const c = p.map(hexRGB), f = Math.max(0, Math.min(2.999, t * 3)), i = Math.floor(f), u = f - i; return [0, 1, 2].map((k) => Math.round(c[i][k] + (c[i + 1][k] - c[i][k]) * u)); };
 const OPTIONS = {
-  hair: [["long", "긴 머리"], ["short", "짧은 머리"]],
+  hair: [["long", "긴 머리"], ["short", "짧은 머리"], ["curly", "곱슬머리"], ["roller", "헤어롤"], ["penguin", "펭귄"]],
   outfit: [["dress", "원피스"], ["coat", "패딩"]],
   hairColor: ["black", "choco", "milk", "honey", "pink", "ash"],
   outfitColor: ["cream", "red", "mint", "yellow", "lilac", "navy", "berry", "sky", "black"],
@@ -176,7 +185,7 @@ const pick = (a) => a[Math.floor(Math.random() * a.length)];
 function randomLook() {
   const v = (a) => { const x = pick(a); return Array.isArray(x) ? x[0] : x; };
   const l = { hair: v(OPTIONS.hair), outfit: v(OPTIONS.outfit), hairColor: v(OPTIONS.hairColor), outfitColor: v(OPTIONS.outfitColor.filter((c) => c !== "black")), hat: Math.random() < 0.85 ? v(OPTIONS.hat.slice(1)) : "none", hatColor: v(OPTIONS.hatColor), scarf: Math.random() < 0.7 ? v(OPTIONS.scarf.slice(1)) : "none", scarfStyle: v(OPTIONS.scarfStyle), scarfPattern: v(OPTIONS.scarfPattern) };
-  if (l.hair === "short") l.outfit = "coat";
+  if (l.hair !== "long") l.outfit = "coat";
   return l;
 }
 const lookKey = (l) => [l.hair, l.outfit, l.hairColor, l.outfitColor, l.hat, l.hatColor, l.scarf, l.scarfStyle, l.scarfPattern].join(".");
@@ -276,7 +285,7 @@ function scarfMat(color, pattern) {
 /** 사람 SD 인형 (발 = 원점, +z 를 본다). 엉덩이 0.3 · 머리 중심 1.02 (1.14배) · 키 약 1.45 */
 const HEAD_K = 1.14, HAT_TOP = { none: 0.37, pompom: 0.57, cat: 0.54, bear: 0.49, rabbit: 0.84, muff: 0.39 };
 function buildPerson(l) {
-  if (DOLL) return buildDoll();
+  if (DOLL) return buildDoll(dollKind(l));
   const root = new THREE.Group(), coat = l.outfit === "coat";
   const hair = palN(l.hairColor, 2, 0x2f2a3a), cloth = palN(l.outfitColor, 2, 0x3a3648), clothD = palN(l.outfitColor, 1, 0x26232f);
   const hairM = new THREE.MeshToonMaterial({ color: hair, gradientMap: ramp, side: THREE.DoubleSide });
@@ -301,14 +310,18 @@ function buildPerson(l) {
   for (const [side, s] of [["left", 1], ["right", -1]]) {
     const g = pivot(s * 0.225, 0.345, 0, body); g.userData.s = s;
     part(SPH, cloth, 0, 0, 0, g, 0.088, 0.085, 0.085);
-    part(sgeo("arm3", () => new THREE.CylinderGeometry(0.068, 0.058, 0.2, 12).translate(0, -0.1, 0)), coat ? cloth : SKIN, 0, -0.02, 0, g);
+    part(sgeo("upperArm", () => new THREE.CylinderGeometry(0.068, 0.062, 0.13, 12).translate(0, -0.065, 0)), coat ? cloth : SKIN, 0, -0.02, 0, g);
+    const forearm = pivot(0, -0.15, 0, g);
+    part(SPH, coat ? cloth : SKIN, 0, 0, 0, forearm, 0.062, 0.055, 0.06);
+    part(sgeo("lowerArm", () => new THREE.CylinderGeometry(0.062, 0.058, 0.09, 12).translate(0, -0.045, 0)), coat ? cloth : SKIN, 0, 0, 0, forearm);
     if (coat) {
       const q = part(sgeo("sleeveQ", () => new THREE.TorusGeometry(0.066, 0.016, 6, 16)), clothD, 0, -0.08, 0, g); q.rotation.x = Math.PI / 2;
-      const cuff = part(sgeo("cuff", () => new THREE.TorusGeometry(0.058, 0.024, 6, 16)), clothD, 0, -0.205, 0, g); cuff.rotation.x = Math.PI / 2;
+      const cuff = part(sgeo("cuff", () => new THREE.TorusGeometry(0.058, 0.024, 6, 16)), clothD, 0, -0.055, 0, forearm); cuff.rotation.x = Math.PI / 2;
     }
-    part(SPH, SKIN, 0, -0.255, 0.008, g, 0.068, 0.07, 0.064);
-    part(SPH, SKIN, -s * 0.042, -0.238, 0.038, g, 0.028, 0.03, 0.026);
-    arms[side] = g; food[side] = { anchor: pivot(0, -0.3, 0.09, g), key: "" };
+    part(SPH, SKIN, 0, -0.105, 0.008, forearm, 0.068, 0.07, 0.064);
+    part(SPH, SKIN, -s * 0.042, -0.088, 0.038, forearm, 0.028, 0.03, 0.026);
+    g.userData.forearm = forearm;
+    arms[side] = g; food[side] = { anchor: pivot(0, -0.15, 0.09, forearm), key: "" };
   }
   // 머리: 크고 둥글게. 눈은 얼굴 아래쪽에 크게, 반짝이 두 개
   const hd = pivot(0, 0.72, 0, body); hd.scale.setScalar(HEAD_K);
@@ -364,53 +377,92 @@ function buildPerson(l) {
   return { root, body, head: hd, legs, arms, food, face, tails, blink: 2, top: 0.3 + 0.72 + (HAT_TOP[l.hat] ?? 0.37) * HEAD_K };
 }
 // ───────── Meshy 인형 (MESHY_DOLL): 뼈대가 든 GLB 하나를 사람마다 복제해 입힌다 ─────────
-// 파일(약 460KB): 텍스처 512 JPEG · 좌표 양자화 · meshopt 압축. 동작 idle · walk · run · sit(의자에 앉기) · wave(한 손 안녕).
+// 인형 다섯 벌(여자 meshy-mint · 남자 meshy-boy · 곱슬머리 meshy-child · 헤어롤 meshy-woman · 펭귄 meshy-penguin, 각 약 360~560KB): 텍스처 512 JPEG · 좌표 양자화 · meshopt 압축. 동작 idle · walk · run · sit(의자에 앉기) · wave(한 손 안녕).
+// 곱슬머리(meshy-child)는 Meshy 웹에서 받은 동작 묶음이라 jump 가 더 있다: 폴짝은 jump 동작으로. (wave 가 없는 인형은 팔 뼈를 돌려 안녕한다)
+// 어느 인형을 입을지는 꾸미기 값의 머리 모양으로 정한다 (short = 남자, curly = 곱슬머리, roller = 헤어롤, penguin = 펭귄, 그 밖 = 여자). 서버의 꾸미기 키 형식을 그대로 쓰려고.
 // idle 은 안녕 동작의 첫 장면(정면을 보고 두 발을 나란히, 두 팔은 내림) 한 장면이다 (Meshy Idle 은 둘러보며 한 발이 앞에 있어서).
 // 만들 때 손본 것: 걷기·뛰기의 엉덩이·허리 흔들림을 줄였고, 머리카락은 머리 뼈만 따라가게 했다 (팔을 들어도 옆머리가 끌려가지 않게).
 // 키 1m 로 만들었고 발 = 원점, +z 를 본다. 뼈대(Armature)에 0.01 배율이 걸려 있어 뼈 좌표는 cm.
 // 뼈 회전(동작 위에 더한다): 다리 x− = 앞으로 들기, 팔 x+ = 앞으로 뻗기, 팔 z = 옆으로 들기 (오른팔 −, 왼팔 +)
 const DOLL_H = 1.45;
+// 인형마다: 파일, 머리 뼈 배율·전체 배율·가로 배율 (남자 인형은 머리가 작고 몸이 가늘게 나와 여자 인형 비율에 맞춘다. 키는 그대로), 앉기 보정(없으면 DOLL_SIT)
+const DOLL_KINDS = {
+  girl: { file: "/models/meshy-mint.glb", head: 1, scale: 1, wide: 1 },
+  boy: { file: "/models/meshy-boy.glb", head: 1.25, scale: 0.91, wide: 1.15 },
+  // 곱슬머리: 키 1.2 로 만들어져 1 로 줄인다. 앉기(뒤돌아보고 앉는 동작의 마지막 장면)는 엉덩이가 덜 내려가고 덜 빠져서, 여자 인형 엉덩이 자리에 맞게 올리고 조금만 민다
+  curly: { file: "/models/meshy-child.glb", head: 1, scale: 1 / 1.2, wide: 1, sit: { down: -0.075, fwd: 0.042 } },
+  // 헤어롤(긴 머리 여자, meshy-doll-clips.mjs longhair): 키 1.2. 앉기 동작이 없어 같은 Meshy 뼈대인 곱슬머리의 앉기 자세를 빌린다(sitFrom).
+  // 폴짝(Happy_jump, 9.8초 동안 여러 번 뛴다)은 0.7초부터 한 번 뛰는 만큼만 제 빠르기로
+  roller: { file: "/models/meshy-woman.glb", head: 1, scale: 1 / 1.2, wide: 1, sit: { down: -0.075, fwd: 0.042 }, sitFrom: "curly", jump: { from: 0.7, speed: 1 } },
+  // 펭귄(scripts/meshy-penguin.mjs): 키 0.8 그대로 (사람보다 작게). 동작을 직접 만들어 안녕 팔 보정(DOLL_WAVE)은 하지 않는다 (waveFix).
+  // 앉기는 엉덩이가 거의 바닥까지 내려가 여자 인형 엉덩이 높이만큼 올리고, 몸이 둥글어 등받이에 묻히지 않게 앞으로 민다
+  penguin: { file: "/models/meshy-penguin.glb", head: 1, scale: 1, wide: 1, h: 0.8, waveFix: false, sit: { down: -0.19, fwd: 0.1 } },
+};
+const dollKind = (l) => (l.hair === "short" ? "boy" : l.hair === "curly" ? "curly" : l.hair === "roller" ? "roller" : l.hair === "penguin" ? "penguin" : "girl");
 // 앉기 동작은 엉덩이를 6cm 내리고 19cm 뒤로 뺀다(키 1 기준). 예전 인형의 엉덩이 자리(벤치 + 0.46)에 맞게 인형을 내리고 앞으로 민다
 const DOLL_SIT = { down: 0.03, fwd: 0.2 };
 // 안녕: 동작 그대로면 든 손이 볼 옆 옆머리 위에 오므로, 위팔·아래팔을 바깥으로 펴고 고개를 반대쪽으로 살짝 기울인다 (인형 기준 축)
 const DOLL_WAVE = [["RightArm", 0, 0, 1, 0.65], ["RightForeArm", 0, 0, 1, 0.45], ["RightArm", 1, 0, 0, 0.15], ["Head", 0, 0, 1, -0.12]];
-const OUTLINE_SKIN = new THREE.ShaderMaterial({ side: THREE.BackSide, skinning: true, uniforms: OUTLINE.uniforms,
-  vertexShader: "#include <common>\n#include <skinning_pars_vertex>\nuniform float uW; void main(){\n#include <skinbase_vertex>\n#include <begin_vertex>\n#include <beginnormal_vertex>\n#include <skinnormal_vertex>\n#include <skinning_vertex>\n vec4 vp = modelViewMatrix * vec4(transformed, 1.0); vec3 n = normalize(normalMatrix * objectNormal); vp.xyz += n * uW * max(-vp.z, 2.0); gl_Position = projectionMatrix * vp; }",
-  fragmentShader: OUTLINE.fragmentShader });
-async function loadDoll() {
-  if (!THREE.GLTFLoader || !THREE.SkeletonUtils || !window.MeshoptDecoder) return null;
+// 안녕 동작(4.1초) 시간표: 팔 들기 0.2~0.8 · 흔들기 ~2.7 · 내리기 ~3.4. 게임의 손 흔들기(1.6초)가 끝나도 팔을 다 내릴 때까지(END) 두 배 빠르기로 이어서 돌린다.
+// 중간에 끊으면 팔이 툭 떨어진다. 서 있기 자세가 안녕 동작의 첫 장면이라 끝에서 넘어갈 때 티가 나지 않는다
+const DOLL_WAVE_T = { speed: 2, up: [0.2, 0.8], down: [2.7, 3.4], end: 3.45 };
+const smooth01 = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+async function loadDoll(file) {
   const loader = new THREE.GLTFLoader(); loader.setMeshoptDecoder(window.MeshoptDecoder);
   try {
-    const g = await loader.loadAsync("/models/meshy-mint.glb"), clips = {};
+    const g = await loader.loadAsync(file), clips = {};
     for (const c of g.animations) {
       // 걷기·뛰기의 앞뒤 이동(루트 모션)은 지워서 제자리걸음 (이동은 게임이 한다)
       if (c.name === "walk" || c.name === "run") for (const t of c.tracks) if (/hips.*position$/i.test(t.name)) { const v = t.values; for (let i = 0; i < v.length; i += 3) { v[i] = v[0]; v[i + 2] = v[2]; } }
       clips[c.name] = c;
     }
-    if (!clips.idle || !clips.walk || !clips.sit || !clips.wave) throw new Error("동작이 모자람: " + Object.keys(clips));
-    // 공원과 같은 툰 음영. 렌더러가 선형 출력이라 텍스처도 선형으로 읽어야 색이 그대로 나온다
+    if (!clips.idle || !clips.walk) throw new Error("동작이 모자람: " + Object.keys(clips));
+    // 툰 재질에 부드러운 음영(DOLL_RAMP). 렌더러가 선형 출력이라 텍스처도 선형으로 읽어야 색이 그대로 나온다
     g.scene.traverse((o) => { if (!o.isSkinnedMesh) return; const map = o.material.map; if (map) map.encoding = THREE.LinearEncoding;
-      o.material = new THREE.MeshToonMaterial({ map, color: 0xffffff, gradientMap: ramp, skinning: true }); });
+      // 양면: 팔 옷을 몸통 옷에서 떼어 낸 인형(meshy-doll-clips.mjs split)은 팔을 들면 이음매 틈으로 안쪽 면이 보인다
+      o.material = new THREE.MeshToonMaterial({ map, color: 0xffffff, gradientMap: DOLL_RAMP, skinning: true, side: o.material.side }); });
     return { scene: g.scene, clips };
-  } catch (err) { console.warn("[park] Meshy 인형을 불러오지 못해 기본 인형을 쓴다", err); return null; }
+  } catch (err) { console.warn("[park] Meshy 인형을 불러오지 못했다", file, err); return null; }
 }
-const DOLL = MESHY_DOLL ? await loadDoll() : null;
-function buildDoll() {
-  const root = new THREE.Group(), body = pivot(0, 0, 0, root), model = THREE.SkeletonUtils.clone(DOLL.scene);
-  model.scale.setScalar(DOLL_H); body.add(model);
-  model.traverse((o) => { if (!o.isSkinnedMesh) return; o.castShadow = true; o.frustumCulled = false;
-    const edge = new THREE.SkinnedMesh(o.geometry, OUTLINE_SKIN); edge.bind(o.skeleton, o.bindMatrix); edge.frustumCulled = false; edge.raycast = noRay; o.parent.add(edge); });
+/** 두 벌 모두 불러와야 Meshy 인형을 쓴다 (하나라도 없으면 기본 SD 인형) */
+async function loadDolls() {
+  if (!MESHY_DOLL || !THREE.GLTFLoader || !THREE.SkeletonUtils || !window.MeshoptDecoder) return null;
+  const kinds = Object.keys(DOLL_KINDS), got = await Promise.all(kinds.map((k) => loadDoll(DOLL_KINDS[k].file)));
+  if (!got.every(Boolean)) return null;
+  const dolls = Object.fromEntries(kinds.map((k, i) => [k, got[i]]));
+  // 앉기 동작이 없는 인형은 뼈 이름이 같은 인형의 앉기를 빌린다 (동작은 뼈 이름으로 찾아 움직인다)
+  for (const k of kinds) dolls[k].clips.sit ??= dolls[DOLL_KINDS[k].sitFrom]?.clips.sit;
+  if (kinds.some((k) => !dolls[k].clips.sit)) { console.warn("[park] 앉기 동작이 없는 인형이 있다"); return null; }
+  return dolls;
+}
+const DOLL = await loadDolls();
+function buildDoll(kind) {
+  const K = DOLL_KINDS[kind], src = DOLL[kind];
+  const root = new THREE.Group(), body = pivot(0, 0, 0, root), model = THREE.SkeletonUtils.clone(src.scene);
+  model.scale.set(DOLL_H * K.scale * K.wide, DOLL_H * K.scale, DOLL_H * K.scale * K.wide); body.add(model);
+  // Meshy 인형은 외곽선 메시를 덧씌우지 않고 원래 표면만 표시한다.
+  model.traverse((o) => { if (!o.isSkinnedMesh) return; o.castShadow = true; o.frustumCulled = false; });
   const bone = (n) => model.getObjectByName(n);
   // 서 있기·앉기는 저절로 돌고, 걷기·안녕은 게임 시간(걸음·동작 시간)에 맞춰 장면을 고른다. 무게로 서로 넘어간다
   const mixer = new THREE.AnimationMixer(model), act = {};
-  for (const n of ["idle", "walk", "sit", "wave"]) { const a = mixer.clipAction(DOLL.clips[n]); a.play(); a.setEffectiveWeight(n === "idle" ? 1 : 0); act[n] = a; }
-  act.walk.paused = act.wave.paused = true;
+  for (const n of ["idle", "walk", "sit", "wave", "jump"]) { if (!src.clips[n]) continue; const a = mixer.clipAction(src.clips[n]); a.play(); a.setEffectiveWeight(n === "idle" ? 1 : 0); a.paused = n === "walk" || n === "wave" || n === "jump"; act[n] = a; }
   // 손에 든 간식 자리: 손 뼈 끝(손가락 쪽 +y). 뼈 배율(DOLL_H × 0.01)을 되돌려 간식은 원래 크기로
   const food = {};
-  for (const [side, name] of [["left", "LeftHand"], ["right", "RightHand"]]) { const a = pivot(0, 7, 2, bone(name)); a.scale.setScalar(1 / (DOLL_H * 0.01)); food[side] = { anchor: a, key: "" }; }
-  const bones = { arms: { left: bone("LeftArm"), right: bone("RightArm") }, wave: DOLL_WAVE.map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) };
-  return { root, body, head: pivot(0, 0, 0, body), legs: [], arms: {}, food, face: null, tails: [], blink: 2, top: DOLL_H + 0.02,
-    doll: { mixer, act, bones, w: { idle: 1, walk: 0, sit: 0, wave: 0 }, arm: { left: [0, 0], right: [0, 0] } } };
+  for (const [side, name] of [["left", "LeftHand"], ["right", "RightHand"]]) { const a = pivot(0, 7, 2, bone(name)); a.scale.setScalar(1 / (DOLL_H * K.scale * 0.01)); food[side] = { anchor: a, key: "" }; }
+  // 안녕 동작이 있으면 그 위에 팔을 펴는 보정(DOLL_WAVE), 없으면 팔 뼈를 돌려서 흔든다 (poseDoll)
+  const bones = { head: bone("Head"), headScale: K.head, arms: { left: bone("LeftArm"), right: bone("RightArm") }, fore: { left: bone("LeftForeArm"), right: bone("RightForeArm") },
+    wave: act.wave && K.waveFix !== false ? DOLL_WAVE.map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) : [] };
+  // AnimationMixer may skip writing unchanged keyframes. Restore its last
+  // unmodified pose before every update so procedural rotations never accumulate.
+  const posed = [...new Set([bones.head, ...Object.values(bones.arms), bone("LeftForeArm"), bone("RightForeArm"), ...bones.wave.map(([b]) => b)])];
+  const basePose = posed.map((b) => [b, b.quaternion.clone()]);
+  const arm = {};
+  for (const [side, sign] of [["left", 1], ["right", -1]]) arm[side] = {
+    weight: 0, reach: 0, target: new THREE.Vector3(),
+    solve: createArmIK(THREE, root, bones.arms[side], bone(side === "left" ? "LeftForeArm" : "RightForeArm"), food[side].anchor, sign),
+  };
+  return { root, body, head: pivot(0, 0, 0, body), legs: [], arms: {}, food, face: null, tails: [], blink: 2, top: DOLL_H * K.scale * (K.h || 1 / K.scale) + 0.02,
+    doll: { mixer, act, bones, basePose, sit: K.sit || DOLL_SIT, jumpT: K.jump, w: { idle: 1, walk: 0, sit: 0, wave: 0, jump: 0 }, waveAct: null, waveT: Infinity, arm } };
 }
 const _dq = new THREE.Quaternion(), _dp = new THREE.Quaternion(), _dr = new THREE.Quaternion(), _dax = new THREE.Vector3();
 /** 뼈를 인형(root) 기준 축으로 돌린다 (동작이 정한 자세 위에 더하기) */
@@ -419,52 +471,72 @@ function turnBone(b, root, axis, ang) {
   b.parent.getWorldQuaternion(_dp); _dq.setFromAxisAngle(_dax, ang);
   b.quaternion.premultiply(_dp.clone().invert().multiply(_dq).multiply(_dp));
 }
-/** Meshy 인형 자세: 앉기 > 걷기 > (서 있기 ↔ 안녕) 순으로 동작을 고르고, 들기·먹기는 팔을 더 돌린다 */
+// A bite has a gentle lift, a pause at the mouth, and a return to holding.
+function eatingReach(eating) {
+  if (eating.h.item.kind === "drink") return smooth01(eating.t, 0, 0.55);
+  const phase = (eating.t % 2.4) / 2.4;
+  return smooth01(phase, 0, 0.28) * (1 - smooth01(phase, 0.62, 0.95));
+}
+// 폴짝(jump 동작이 있는 인형): 2.3초 동작 중 웅크리기(0.35초)~착지(1.9초)를 게임의 폴짝 시간(0.76초)에 맞춰 두 배 빠르기로
+const DOLL_JUMP_T = { from: 0.35, speed: 2 };
+// 뼈로 하는 안녕(안녕 동작이 없는 인형): 위팔을 옆으로 드는 각 · 아래팔을 더 세우는 각 · 흔드는 폭 (라디안)
+const DOLL_BONE_WAVE = { arm: 1.2, fore: 0.9, swing: 0.3 };
+/** Meshy 인형 자세: 앉기 > 걷기 > (서 있기 ↔ 안녕 · 폴짝) 순으로 동작을 고르고, 들기·먹기는 팔을 더 돌린다 */
 function poseDoll(c, m, dt, now, seat) {
   const d = m.doll, A = d.act, k = Math.min(1, dt * 10);
-  const waving = c.act?.kind === "wave", walking = c.moving && !seat;
-  // 앉아서 안녕은 앉기 동작 위에 팔만 든다 (안녕 동작은 서서 하는 동작이라)
-  const want = { sit: seat ? 1 : 0, walk: walking ? 1 : 0, wave: !seat && !walking && waving ? 1 : 0 };
-  want.idle = !seat && !walking && !waving ? 1 : 0;
-  for (const n in want) { d.w[n] = ease(d.w[n], want[n], k); A[n].setEffectiveWeight(d.w[n]); }
+  const waving = c.act?.kind === "wave", walking = c.moving && !seat, jumping = !!A.jump && c.act?.kind === "jump" && !seat && !walking;
+  // 새 손 흔들기가 오면 안녕 동작을 처음부터. 걷거나 앉으면 그만둔다. 앉아서 안녕은 앉기 동작 위에 팔만 든다 (안녕 동작은 서서 하는 동작이라)
+  if (waving && c.act !== d.waveAct) { d.waveAct = c.act; d.waveT = 0; }
+  if (walking || seat) d.waveT = Infinity; else if (d.waveT < DOLL_WAVE_T.end) d.waveT += dt * DOLL_WAVE_T.speed;
+  const standWave = d.waveT < DOLL_WAVE_T.end;
+  const want = { sit: seat ? 1 : 0, walk: walking ? 1 : 0, wave: standWave && A.wave ? 1 : 0, jump: jumping ? 1 : 0 };
+  want.idle = !seat && !walking && !want.wave && !jumping ? 1 : 0;
+  for (const n in want) { d.w[n] = ease(d.w[n], want[n], k); A[n]?.setEffectiveWeight(d.w[n]); }
   A.walk.time = ((c.walkT * 2) % 1) * A.walk.getClip().duration;
-  // 안녕 동작(4.1초)을 게임의 손 흔들기 시간(1.6초)에 맞춰 두 배로: 팔 들기 → 흔들기까지
-  A.wave.time = waving ? Math.min(c.act.t * 2, A.wave.getClip().duration - 0.01) : 0;
+  if (A.wave) A.wave.time = standWave ? Math.min(d.waveT, A.wave.getClip().duration - 0.01) : 0;
+  const J = d.jumpT || DOLL_JUMP_T;
+  if (A.jump && jumping) A.jump.time = Math.min(J.from + c.act.t * J.speed, A.jump.getClip().duration - 0.01);
+  for (const [bone, quaternion] of d.basePose) bone.quaternion.copy(quaternion);
   d.mixer.update(dt);
-  if (d.w.wave > 0.01) for (const [b, axis, ang] of d.bones.wave) turnBone(b, m.root, axis, ang * d.w.wave);
-  m.body.position.set(0, -DOLL_SIT.down * d.w.sit, DOLL_SIT.fwd * d.w.sit);
+  for (const [bone, quaternion] of d.basePose) quaternion.copy(bone.quaternion);
+  // 머리 배율은 동작이 매번 1 로 되돌리므로 동작 뒤에 다시 준다
+  if (d.bones.headScale !== 1) d.bones.head.scale.setScalar(d.bones.headScale);
+  // 팔 바깥으로 펴기 · 고개 기울이기는 팔을 드는 만큼만 (들 때 서서히 더하고, 내릴 때 서서히 뺀다)
+  const raise = standWave ? smooth01(d.waveT, ...DOLL_WAVE_T.up) * (1 - smooth01(d.waveT, ...DOLL_WAVE_T.down)) : 0, wv = d.w.wave * raise;
+  if (wv > 0.01) for (const [b, axis, ang] of d.bones.wave) turnBone(b, m.root, axis, ang * wv);
+  m.body.position.set(0, -d.sit.down * d.w.sit, d.sit.fwd * d.w.sit);
   m.body.scale.y = c.moving || seat ? 1 : 1 + Math.sin(now * 2.6) * 0.012;
   m.body.rotation.z = c.act?.kind === "shiver" ? (Math.floor(c.act.t / 0.07) % 2 ? 0.04 : -0.04) : 0;
-  const e = c.eating, bite = e ? Math.max(0, Math.sin(Math.PI * Math.min(1, (e.t % 1) / 0.6))) : 0;
-  const seatWave = seat && waving ? (c.hands.some((h) => h.side === "right") && !c.hands.some((h) => h.side === "left") ? "left" : "right") : null;
+  const e = c.eating, kArm = 1 - Math.exp(-dt * 10);
+  // 팔 뼈를 돌려 흔드는 손: 앉아서 안녕, 또는 안녕 동작이 없는 인형이 서서 안녕 (빈 손으로. 오른손에만 들었으면 왼손)
+  const freeSide = c.hands.some((h) => h.side === "right") && !c.hands.some((h) => h.side === "left") ? "left" : "right";
+  const seatWave = seat && waving ? freeSide : null, boneWave = !A.wave && raise > 0.01 ? freeSide : null;
   for (const side of ["left", "right"]) {
-    const s = side === "left" ? 1 : -1, h = c.hands.find((q) => q.side === side), f = m.food[side], a = d.arm[side];
-    // [앞으로 뻗기, 옆으로 들기] 목표값으로 천천히 옮긴 뒤 동작 위에 더한다. 서서 안녕하는 오른팔은 동작에 맡긴다
-    let fwd = 0, up = 0;
-    if (h && !(side === "right" && d.w.wave > 0.5)) { fwd = 0.9; if (e && e.h === h) { fwd = 0.9 + bite * 0.7; up = bite * 0.5; } }
-    if (side === seatWave) { fwd = 0.3; up = 1.5 + Math.sin(now * 14) * 0.25; }
-    a[0] = ease(a[0], fwd, k); a[1] = side === seatWave ? up : ease(a[1], up, k);
-    const b = d.bones.arms[side]; b.rotation.x += a[0]; b.rotation.z += s * a[1];
+    const sign = side === "left" ? 1 : -1, h = c.hands.find((q) => q.side === side), f = m.food[side], a = d.arm[side];
+    a.weight = ease(a.weight, h ? 1 : 0, kArm);
+    const eating = h && e && e.h === h;
+    a.reach = ease(a.reach, eating ? eatingReach(e) : 0, kArm);
+    if (a.weight > 0.001) {
+      m.root.updateWorldMatrix(true, true);
+      const shoulder = m.root.worldToLocal(d.bones.arms[side].getWorldPosition(new THREE.Vector3()));
+      const head = m.root.worldToLocal(d.bones.head.getWorldPosition(new THREE.Vector3()));
+      // Hold in front of the chest; lift only the eating hand toward the mouth.
+      a.target.set(shoulder.x + sign * 0.025, shoulder.y - 0.14, shoulder.z + 0.24);
+      a.target.lerp(new THREE.Vector3(head.x + sign * 0.035, head.y, head.z + 0.29), a.reach);
+      a.solve(a.target, a.weight);
+    } else if (side === seatWave) {
+      turnBone(d.bones.arms[side], m.root, new THREE.Vector3(0, 0, 1), sign * (1.5 + Math.sin(now * 14) * 0.25));
+    } else if (side === boneWave) {
+      // 서서 안녕: 팔을 옆으로 들고(드는 만큼 서서히) 아래팔을 세워 좌우로 흔든다
+      turnBone(d.bones.arms[side], m.root, new THREE.Vector3(0, 0, 1), sign * raise * DOLL_BONE_WAVE.arm);
+      turnBone(d.bones.fore[side], m.root, new THREE.Vector3(0, 0, 1), sign * raise * (DOLL_BONE_WAVE.fore + Math.sin(now * 14) * DOLL_BONE_WAVE.swing));
+    }
     const key = h ? h.item.id + h.stage : "";
     if (key !== f.key) { f.key = key; f.anchor.clear(); if (h) f.anchor.add(buildFood(h.item.id, h.stage)); }
   }
 }
-// 손에 든 간식: 메뉴마다 기본 도형으로 (컵 · 꼬치 · 종이컵 그릇 · 봉투 · 붕어 · 호떡 · 계란빵 · 작은 빵). 먹을수록 줄어든다
-const FOOD_SHAPE = { "hot-choco": ["cup", 0x7a4a3a], "yuja-tea": ["cup", 0xf0b84a], sikhye: ["cup", 0xf3ead2], "eomuk-soup": ["cup", 0xe8d3a8], eomuk: ["skewer", 0xe8c48a], dakkochi: ["skewer", 0xc8643a],
-  tteokbokki: ["bowl", 0xe0503a], sundae: ["bowl", 0x5a4048], twigim: ["bag", 0xe6a84a], goguma: ["bag", 0x9a4a6a], gunbam: ["bag", 0x7a4a2a], "bungeoppang-red": ["fish", 0xe0a050], "bungeoppang-cream": ["fish", 0xecb860],
-  "hotteok-honey": ["disc", 0xd89040], "hotteok-seed": ["disc", 0xc88038], gyeranppang: ["egg", 0xe6b060], ttangkongppang: ["buns", 0xd8a050] };
-function buildFood(id, stage) {
-  const [kind, c] = FOOD_SHAPE[id] || ["bag", 0xe6a84a], g = new THREE.Group(), left = 1 - stage * 0.3, n = 3 - stage;
-  if (kind === "cup") { part(sgeo("cup", () => new THREE.CylinderGeometry(0.075, 0.058, 0.17, 12)), 0xfff7ea, 0, 0.02, 0, g); part(sgeo("sleeve", () => new THREE.CylinderGeometry(0.073, 0.066, 0.06, 12)), 0xc8946a, 0, 0.01, 0, g); part(sgeo("liquid", () => new THREE.CylinderGeometry(0.066, 0.066, 0.01, 12)), c, 0, 0.1 - stage * 0.04, 0, g); }
-  else if (kind === "skewer") { part(sgeo("stick", () => new THREE.CylinderGeometry(0.008, 0.008, 0.34, 5)), 0xd8b88a, 0, 0.08, 0, g); for (let i = 0; i < n; i++) part(SPH, c, 0, 0.17 - i * 0.075, 0, g, 0.05, 0.036, 0.04); }
-  else if (kind === "bowl") { part(sgeo("bowl", () => new THREE.CylinderGeometry(0.09, 0.065, 0.09, 12)), 0xfff7ea, 0, 0, 0, g); for (let i = 0; i < n + 1; i++) { const q = part(sgeo("piece", () => new THREE.CylinderGeometry(0.018, 0.018, 0.08, 6)), c, (i - n / 2) * 0.03, 0.055, (i % 2) * 0.02 - 0.01, g); q.rotation.z = 1.2 + i * 0.5; } }
-  else if (kind === "bag") { part(sgeo("bag", () => new THREE.CylinderGeometry(0.08, 0.05, 0.14, 10)), 0xf2e6c8, 0, 0, 0, g); for (let i = 0; i < n; i++) part(SPH, c, (i - 1) * 0.04, 0.075, (i % 2) * 0.02, g, 0.042, 0.035, 0.04); }
-  else if (kind === "fish") { part(SPH, c, 0, 0.03, 0, g, 0.1 * left, 0.065, 0.032); const t = part(SPH, c, -0.1 * left - 0.02, 0.03, 0, g, 0.04, 0.05, 0.02); t.rotation.z = 0.6; part(SPH, glowM(INK), 0.06 * left, 0.05, 0.03, g, 0.01); }
-  else if (kind === "disc") { part(sgeo("disc", () => new THREE.CylinderGeometry(0.09, 0.09, 0.03, 14)), c, 0, 0.03, 0, g, left, 1, left).rotation.x = 1.2; part(rboxGeo(0.16, 0.08, 0.04, 0.015), 0xf2e6c8, 0, -0.02, 0.02, g); }
-  else if (kind === "egg") { part(rboxGeo(0.15, 0.07, 0.1, 0.03), c, 0, 0.02, 0, g, left, 1, 1); part(SPH, 0xffd84a, 0, 0.055, 0, g, 0.045 * left, 0.02, 0.035); }
-  else for (let i = 0; i < n; i++) part(SPH, c, (i - 1) * 0.05, 0.03, 0, g, 0.04, 0.035, 0.04);
-  return outline(g);
-}
+// 두 인형 모두 같은 손 앵커와 섭취 단계를 사용한다.
+const buildFood = await loadFoodSprites(THREE, MENU.keys());
 /** 고등어 고양이 SD 인형 (발 = 원점, +z 를 본다) */
 function buildCat() {
   const root = new THREE.Group(), C = 0xa9a2b8, D = 0x5f5873, W = 0xf6f1ea;
@@ -506,7 +578,7 @@ const LOOK_KEYS = ["hair", "outfit", "hairColor", "outfitColor", "hat", "hatColo
 function parseLook(key) {
   const v = String(key || "").split("."), l = { ...DEFAULT_LOOK };
   LOOK_KEYS.forEach((k, i) => { if (OPTIONS[k].some((o) => (Array.isArray(o) ? o[0] : o) === v[i])) l[k] = v[i]; });
-  if (l.hair === "short") l.outfit = "coat"; return l;
+  if (l.hair !== "long") l.outfit = "coat"; return l;
 }
 
 // 방향 이름은 서버와 같은 세계 방향 (down = +z, right = +x)
@@ -523,7 +595,8 @@ function posePerson(c, dt, now) {
   let yaw = yawOf(c.facing), y = c.pos.y;
   if (seat) { yaw = seat.side ? Math.PI / 2 : 0; y = seat.group.position.y + 0.16; }
   c.yaw = turn(c.yaw, yaw, dt * 14);
-  const [ox, oy] = actOffset(c.act, !!seat), hopY = c.hop > 0 ? Math.sin((1 - c.hop / 0.45) * Math.PI) * 0.22 : 0;
+  // jump 동작이 있는 인형은 동작이 직접 뛰므로 몸 전체를 튀기지 않는다
+  const [ox, oy] = c.act?.kind === "jump" && m.doll?.act.jump ? [0, 0] : actOffset(c.act, !!seat), hopY = c.hop > 0 ? Math.sin((1 - c.hop / 0.45) * Math.PI) * 0.22 : 0;
   m.root.position.set(c.pos.x, y + hopY + oy * ART, c.pos.z).addScaledVector(camRight, ox * ART * 1.5); m.root.rotation.y = c.yaw;
   if (m.doll) return poseDoll(c, m, dt, now, seat);
   const ph = c.walkT * Math.PI * 4, w = c.moving ? Math.sin(ph) : 0, k = dt * 14;
@@ -534,16 +607,18 @@ function posePerson(c, dt, now) {
   m.body.rotation.x = ease(m.body.rotation.x, c.moving ? 0.08 : seat ? -0.06 : 0, k);
   m.body.scale.y = c.moving ? 0.96 + bounce * 0.05 : 1 + Math.sin(now * 2.6) * 0.012;
   m.head.rotation.z = c.moving ? Math.sin(ph) * 0.04 : Math.sin(now * 1.3) * 0.035;
-  const e = c.eating, bite = e ? Math.max(0, Math.sin(Math.PI * Math.min(1, (e.t % 1) / 0.6))) : 0;
+  const e = c.eating, bite = e ? eatingReach(e) : 0;
   const waveSide = c.act?.kind === "wave" ? (c.hands.some((h) => h.side === "right") && !c.hands.some((h) => h.side === "left") ? "left" : "right") : null;
   for (const side of ["left", "right"]) {
     const g = m.arms[side], s = g.userData.s, h = c.hands.find((q) => q.side === side), f = m.food[side];
     let rx = (side === "left" ? -w : w) * 0.5, rz = s * 0.2;
-    if (h) { rx = -0.75; rz = s * 0.1; if (e && e.h === h) { rx = -0.75 - bite * 1.15; rz = -s * bite * 0.3; } }
+    let elbow = 0;
+    if (h) { rx = -0.4; rz = s * 0.1; elbow = -0.8; if (e && e.h === h) { rx -= bite * 1.25; elbow -= bite * 0.6; rz = s * (0.1 - bite * 0.35); } }
     // 손 흔들기: 팔을 얼굴 옆으로 비스듬히 들어 볼 옆에서 흔든다 (똑바로 들면 큰 머리에 손이 묻힘)
-    if (side === waveSide) { rx = -0.45; rz = s * (1.95 + Math.sin(now * 14) * 0.3); }
+    if (side === waveSide && !h) { rx = -0.45; rz = s * (1.95 + Math.sin(now * 14) * 0.3); }
     if (seat && !h && side !== waveSide) { rx = -0.5; rz = s * 0.12; }
-    g.rotation.x = ease(g.rotation.x, rx, k); g.rotation.z = side === waveSide ? rz : ease(g.rotation.z, rz, k);
+    g.rotation.x = ease(g.rotation.x, rx, k); g.rotation.z = side === waveSide && !h ? rz : ease(g.rotation.z, rz, k);
+    g.userData.forearm.rotation.x = ease(g.userData.forearm.rotation.x, elbow, Math.min(1, k));
     const key = h ? h.item.id + h.stage : "";
     if (key !== f.key) { f.key = key; f.anchor.clear(); if (h) f.anchor.add(buildFood(h.item.id, h.stage)); }
   }
@@ -603,7 +678,7 @@ function actOffset(a, seated) {
 // 내 캐릭터는 서버와 같은 고정 틱(TICK_SEC)·같은 step() 으로 움직이고(px), 화면은 직전 틱~현재 틱 사이를 보간한다
 const spawn = layer("spawns").objects[0];
 const state = { mode: "boot", look: { ...DEFAULT_LOOK }, nick: "", idle: 0 };
-try { const s = JSON.parse(localStorage.getItem("parkPixel3d") || "{}"); if (s.look && typeof s.look === "object") for (const k of Object.keys(DEFAULT_LOOK)) { const ok = OPTIONS[k].some((v) => (Array.isArray(v) ? v[0] : v) === s.look[k]); if (ok) state.look[k] = s.look[k]; } if (state.look.hair === "short") state.look.outfit = "coat"; } catch {}
+try { const s = JSON.parse(localStorage.getItem("parkPixel3d") || "{}"); if (s.look && typeof s.look === "object") for (const k of Object.keys(DEFAULT_LOOK)) { const ok = OPTIONS[k].some((v) => (Array.isArray(v) ? v[0] : v) === s.look[k]); if (ok) state.look[k] = s.look[k]; } if (state.look.hair !== "long") state.look.outfit = "coat"; } catch {}
 const save = () => { try { localStorage.setItem("parkPixel3d", JSON.stringify({ look: state.look })); } catch {} };
 const newChar = (shadowW = 0.85) => ({ model: null, pos: new THREE.Vector3(), facing: "down", yaw: 0, hop: 0, moving: false, walkT: 0, seat: null, hands: [], handsKey: "", eating: null, act: null, emote: null, eatSaid: -1, steamT: 0, shadow: makeShadow(shadowW) });
 const player = Object.assign(newChar(), { tag: $("tag"), bubble: $("emoteBubble") });
@@ -844,7 +919,7 @@ function arrivePending() {
 // ───────── 간식 트럭 (4-1~4-4): 트럭 앞에서 메뉴 → 주문 → 대기열·조리는 서버. 손은 최대 2개 ─────────
 for (const tr of trucks) tr.place = TRUCK_PLACES.get(tr.id);
 const truckInFront = () => trucks.find((tr) => tr.place && isAtTruckFront(sim.cur, tr.place));
-const foodIcon = (id) => `background-image:url(${SPR["food-" + id]})`;
+const foodIcon = (id) => `background-image:url(/sprites/food-hd/${id}.png)`;
 let menuTruck = null;
 const canOrderHere = () => !menuTruck && !myView()?.orderTruck && !!truckInFront();
 function interactTruck(tr, fromClick) {
@@ -1073,7 +1148,7 @@ const mapBase = document.createElement("canvas"); mapBase.width = MW * MS; mapBa
 {
   const g = mapBase.getContext("2d"), col = { [G.snow]: "#f2f5fb", [G.snow2]: "#eaeff8", [G.path]: "#d9cfc6", [G.plaza]: "#e6d9cc", [G.ice]: "#a9d3ee", [G.outside]: "#8f9bbd", [G.bridge]: "#b69b72", [G.stage]: "#c9c2b6" };
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
-    const o = OBST[y * MW + x]; let c = col[groundAt(x, y)] || col[G.snow];
+    const o = OBST[y * MW + x]; let c = window.ParkGround.byId.get(MAP.editor3d?.groundStyles?.[y * MW + x])?.color || col[groundAt(x, y)] || col[G.snow];
     if (o === G.tree) c = "#4f9b7c"; else if (o === G.garden) c = "#79b596"; else if (o === G.rock) c = "#a9a6b8"; else if (o === G.fence) c = "#b89070"; else if (o >= G.benchDown && o <= G.benchLeft) c = "#c8946a"; else if (o === G.wall && inside[y * MW + x]) c = "#f2786a";
     g.fillStyle = c; g.fillRect(x * MS, y * MS, MS, MS);
     // 높낮이 음영: 해가 비치는 서쪽·남쪽 비탈은 밝게, 반대쪽은 어둡게, 높은 곳은 조금 더 밝게
@@ -1235,7 +1310,7 @@ $("helpLine").classList.toggle("hidden", !FINE);
 
 // 꾸미기: 고를 때마다 바로 입어 보고, 미리보기는 네 방향으로 돈다
 const DRESS_ROWS = [["hair", "머리"], ["hairColor", "머리색"], ["outfit", "옷"], ["outfitColor", "옷 색"], ["hat", "모자"], ["hatColor", "모자 색"], ["scarf", "목도리"], ["scarfStyle", "두르기"], ["scarfPattern", "무늬"]];
-function setLook(l) { state.look = l; if (l.hair === "short") l.outfit = "coat"; save(); dressPlayer(); player.hop = 0.45; buildDress(); send(MSG.look, { look: lookKey(state.look) }); }
+function setLook(l) { state.look = l; if (l.hair !== "long") l.outfit = "coat"; save(); dressPlayer(); player.hop = 0.45; buildDress(); send(MSG.look, { look: lookKey(state.look) }); }
 function buildDress() {
   const box = $("dressRows"); box.textContent = "";
   for (const [k, label] of DRESS_ROWS) {
@@ -1245,7 +1320,7 @@ function buildDress() {
     for (const v of OPTIONS[k]) {
       const [id, name] = Array.isArray(v) ? v : [v, null], b = document.createElement("button");
       if (name) { b.className = "chip"; b.textContent = name; } else { b.className = "sw" + (id === "none" ? " none" : ""); b.style.background = id === "none" ? "" : SWATCH(id); b.setAttribute("aria-label", id); }
-      const off = k === "outfit" && id === "dress" && state.look.hair === "short";
+      const off = k === "outfit" && id === "dress" && state.look.hair !== "long";
       b.disabled = off; b.classList.toggle("on", state.look[k] === id);
       b.onclick = () => setLook({ ...state.look, [k]: id }); row.lastChild.append(b);
     }
@@ -1275,24 +1350,33 @@ $("dressRand").onclick = () => setLook(randomLook());
 $("dressClose").onclick = () => $("dress").classList.add("hidden");
 $("dress").addEventListener("click", (e) => { if (e.target.id === "dress") $("dress").classList.add("hidden"); });
 $("pickBtn").onclick = () => openPick("change");
-// Meshy 인형은 모습이 하나뿐: 꾸미기 · 랜덤 · 친구 바꾸기와 처음 화면의 친구 고르기를 숨긴다
+// Meshy 인형은 남/녀 두 벌뿐: 꾸미기 · 랜덤 · 친구 바꾸기를 숨기고, 처음 화면의 친구 고르기는 남/녀 단추로 바꾼다
 if (DOLL) {
   for (const id of ["dressBtn", "diceBtn", "pickBtn", "pickDots"]) $(id).style.display = "none";
-  $("pickPrev").parentElement.style.display = "none"; $("pick").querySelector(".ptitle").textContent = "공원에 놀러 갈까요?";
+  $("pickPrev").parentElement.style.display = "none"; $("genderTabs").hidden = false;
+  $("pick").querySelector(".ptitle").textContent = "누구로 놀러 갈까요?";
 }
 
 // ───────── 입장 (3-6): 친구(꾸미기 묶음) 고르기 + 로그인(닉네임·PIN) / 처음이에요(가입) → 받은 토큰으로 채널 접속 ─────────
 // 들어온 뒤 '친구' 단추로 다시 열면 모습만 바꾼다 (닉네임은 계정이라 그대로)
 const profile = loadProfile();
 const lobby = { mode: profile.nickname ? "login" : "signup", busy: false, checkTimer: 0, checkAbort: null, signedUp: false };
-state.preset = Math.max(0, PRESETS.findIndex((p) => lookKey(p.look) === lookKey(state.look)));
-const custom = PRESETS.every((p) => lookKey(p.look) !== lookKey(state.look)) ? { name: "내 꾸미기", note: "지난번에 꾸민 모습", look: { ...state.look } } : null;
-const pickList = custom ? [custom, ...PRESETS] : PRESETS;
-if (custom) state.preset = 0;
+// Meshy 인형: 여자 · 남자 · 곱슬머리 · 헤어롤 · 펭귄 다섯 가지 (머리 모양으로 인형이 정해진다. 지난번에 고른 쪽을 기억한다)
+const DOLL_PICKS = [
+  { name: "여자", note: "", look: { ...DEFAULT_LOOK, hair: "long" } },
+  { name: "남자", note: "", look: { ...DEFAULT_LOOK, hair: "short", outfit: "coat" } },
+  { name: "곱슬머리", note: "", look: { ...DEFAULT_LOOK, hair: "curly", outfit: "coat" } },
+  { name: "헤어롤", note: "", look: { ...DEFAULT_LOOK, hair: "roller", outfit: "coat" } },
+  { name: "펭귄", note: "", look: { ...DEFAULT_LOOK, hair: "penguin", outfit: "coat" } },
+];
+const custom = !DOLL && PRESETS.every((p) => lookKey(p.look) !== lookKey(state.look)) ? { name: "내 꾸미기", note: "지난번에 꾸민 모습", look: { ...state.look } } : null;
+const pickList = DOLL ? DOLL_PICKS : custom ? [custom, ...PRESETS] : PRESETS;
+state.preset = DOLL ? Math.max(0, DOLL_PICKS.findIndex((p) => dollKind(p.look) === dollKind(state.look))) : custom ? 0 : Math.max(0, PRESETS.findIndex((p) => lookKey(p.look) === lookKey(state.look)));
 $("pickDots").innerHTML = pickList.map(() => "<i></i>").join("");
 function choosePreset(i) {
   state.preset = (i + pickList.length) % pickList.length; const p = pickList[state.preset];
   $("pickName").textContent = p.name; $("pickNote").textContent = p.note; [...$("pickDots").children].forEach((d, k) => d.classList.toggle("on", k === state.preset));
+  for (const b of $("genderTabs").children) b.setAttribute("aria-checked", String(Number(b.dataset.i) === state.preset));
   if (lookKey(p.look) !== lookKey(state.look)) { state.look = { ...p.look }; dressPlayer(); player.hop = 0.45; }
 }
 function setLobbyMode(mode) {
@@ -1400,6 +1484,7 @@ $("muteBtn").onclick = () => { updateSettings({ muted: !getSettings().muted }); 
 applySound(); void refreshToday(); setInterval(() => void refreshToday(), 60_000);
 for (const b of document.querySelectorAll("#lobbyTabs button")) b.onclick = () => setLobbyMode(b.dataset.mode);
 $("pickPrev").onclick = () => choosePreset(state.preset - 1); $("pickNext").onclick = () => choosePreset(state.preset + 1);
+for (const b of $("genderTabs").children) b.onclick = () => choosePreset(Number(b.dataset.i));
 $("nick").maxLength = NICKNAME_MAX_LENGTH + 4;
 // 닉네임·PIN 입력을 끄면 안내 문구(오류)만 남긴다
 if (!ACCOUNT_FORM) {

@@ -141,7 +141,8 @@ export function idleFrame(facing: Facing, pose: Pose = "normal"): number {
 }
 
 /**
- * 간식 그림: 12x12 프레임 EAT_STAGES 개 (0 = 처음, 뒤로 갈수록 먹어서 줄어듦). pnpm gen:food
+ * 간식 그림: 12x12 프레임 EAT_STAGES 개 (0 = 처음, 뒤로 갈수록 먹어서 줄어듦).
+ * 생성 원본·128px 메뉴 그림·재조립 방법: docs/food-remake/README.md
  * 메뉴 id 는 packages/shared/data/menu.json
  */
 export const FOOD = {

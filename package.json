@@ -23,6 +23,8 @@
     "check:map": "tsx scripts/check-park-layout.ts",
     "gen:character": "tsx scripts/gen-placeholder-character.ts",
     "gen:food": "tsx scripts/gen-placeholder-food.ts",
+    "gen:food-art": "tsx scripts/assemble-food-art.ts",
+    "check:food": "tsx scripts/check-food-art.ts",
     "gen:emote": "tsx scripts/gen-placeholder-emotes.ts",
     "gen:cat": "tsx scripts/gen-cat.ts",
     "gen:sound": "tsx scripts/gen-sounds.ts",

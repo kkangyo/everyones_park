@@ -156,6 +156,11 @@
   #lobbyTabs { display: flex; gap: 6px; margin-bottom: 8px; }
   #lobbyTabs button { flex: 1; height: 38px; border-radius: 12px; background: var(--chip); font-size: 15px; }
   #lobbyTabs button[aria-selected="true"] { background: var(--on); color: var(--on-ink); box-shadow: inset 0 0 0 2px var(--on-ink); }
+  /* 입장: 남/녀 고르기 (Meshy 인형) */
+  #genderTabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  #genderTabs[hidden] { display: none; }
+  #genderTabs button { flex: 1 0 auto; padding: 0 12px; height: 52px; border-radius: 14px; background: var(--chip); font-size: 20px; }
+  #genderTabs button[aria-checked="true"] { background: var(--on); color: var(--on-ink); box-shadow: inset 0 0 0 2px var(--on-ink); }
   #lobby .nick { margin-top: 6px; } #lobby .nick span { width: 62px; }
   .msg { min-height: 18px; font-size: 13px; margin: 4px 4px 0; color: #8a8199; } .msg.bad, #lobbyMsg { color: var(--on-ink); }
   #lobbyMsg:empty { min-height: 0; margin: 0; }
@@ -209,6 +214,7 @@
 <div id="pick" class="hidden"><div class="ptitle">어떤 친구로 놀러 갈까요?</div>
 <form class="sheet" id="lobbyForm" novalidate><div class="prow"><button type="button" id="pickPrev" aria-label="이전 캐릭터">‹</button><div><b id="pickName"></b><small id="pickNote"></small></div><button type="button" id="pickNext" aria-label="다음 캐릭터">›</button></div>
 <div class="dots" id="pickDots"></div>
+<div id="genderTabs" role="radiogroup" aria-label="캐릭터" hidden><button type="button" role="radio" data-i="0">여자</button><button type="button" role="radio" data-i="1">남자</button><button type="button" role="radio" data-i="2">곱슬머리</button><button type="button" role="radio" data-i="3">헤어롤</button><button type="button" role="radio" data-i="4">펭귄</button></div>
 <div id="lobby">
 <div id="lobbyTabs" role="tablist"><button type="button" role="tab" data-mode="login">로그인</button><button type="button" role="tab" data-mode="signup">처음이에요</button></div>
 <label class="nick"><span>닉네임</span><input id="nick" name="nickname" autocomplete="username" spellcheck="false" placeholder="2–10자"><button id="nickDice" type="button" aria-label="랜덤 닉네임 추천">🎲</button></label>
@@ -237,6 +243,7 @@ window.addEventListener("error", (e) => window.bootFail(/WebGL/i.test(e.message 
 <script src="/park3d/sprites-data.js"></script>
 <script src="/park3d/lamps.js"></script>
 <script src="/park3d/trees.js"></script>
+<script src="/park3d/ground.js"></script>
 <script src="/park3d/world.js"></script>
 <script type="module" src="/src/sd/main.js"></script>
 </body>
