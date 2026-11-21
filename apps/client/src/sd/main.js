@@ -169,7 +169,7 @@ const PAL = { // [외곽선, 그늘, 바탕, 밝은 면]
 const hexRGB = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const ramp4 = (p, t) => { const c = p.map(hexRGB), f = Math.max(0, Math.min(2.999, t * 3)), i = Math.floor(f), u = f - i; return [0, 1, 2].map((k) => Math.round(c[i][k] + (c[i + 1][k] - c[i][k]) * u)); };
 const OPTIONS = {
-  hair: [["long", "긴 머리"], ["short", "짧은 머리"], ["curly", "곱슬머리"], ["roller", "헤어롤"], ["penguin", "펭귄"]],
+  hair: [["long", "긴 머리"], ["short", "짧은 머리"], ["curly", "곱슬머리"], ["roller", "헤어롤"], ["penguin", "펭귄"], ["alpaca", "알파카"]],
   outfit: [["dress", "원피스"], ["coat", "패딩"]],
   hairColor: ["black", "choco", "milk", "honey", "pink", "ash"],
   outfitColor: ["cream", "red", "mint", "yellow", "lilac", "navy", "berry", "sky", "black"],
@@ -377,9 +377,9 @@ function buildPerson(l) {
   return { root, body, head: hd, legs, arms, food, face, tails, blink: 2, top: 0.3 + 0.72 + (HAT_TOP[l.hat] ?? 0.37) * HEAD_K };
 }
 // ───────── Meshy 인형 (MESHY_DOLL): 뼈대가 든 GLB 하나를 사람마다 복제해 입힌다 ─────────
-// 인형 다섯 벌(여자 meshy-mint · 남자 meshy-boy · 곱슬머리 meshy-child · 헤어롤 meshy-woman · 펭귄 meshy-penguin, 각 약 360~560KB): 텍스처 512 JPEG · 좌표 양자화 · meshopt 압축. 동작 idle · walk · run · sit(의자에 앉기) · wave(한 손 안녕).
+// 인형 여섯 벌(여자 meshy-mint · 남자 meshy-boy · 곱슬머리 meshy-child · 헤어롤 meshy-woman · 펭귄 meshy-penguin, 각 약 360~560KB · 알파카 meshy-alpaca 1.5MB): 텍스처 512 JPEG · 좌표 양자화 · meshopt 압축. 동작 idle · walk · run · sit(의자에 앉기) · wave(한 손 안녕).
 // 곱슬머리(meshy-child)는 Meshy 웹에서 받은 동작 묶음이라 jump 가 더 있다: 폴짝은 jump 동작으로. (wave 가 없는 인형은 팔 뼈를 돌려 안녕한다)
-// 어느 인형을 입을지는 꾸미기 값의 머리 모양으로 정한다 (short = 남자, curly = 곱슬머리, roller = 헤어롤, penguin = 펭귄, 그 밖 = 여자). 서버의 꾸미기 키 형식을 그대로 쓰려고.
+// 어느 인형을 입을지는 꾸미기 값의 머리 모양으로 정한다 (short = 남자, curly = 곱슬머리, roller = 헤어롤, penguin = 펭귄, alpaca = 알파카, 그 밖 = 여자). 서버의 꾸미기 키 형식을 그대로 쓰려고.
 // idle 은 안녕 동작의 첫 장면(정면을 보고 두 발을 나란히, 두 팔은 내림) 한 장면이다 (Meshy Idle 은 둘러보며 한 발이 앞에 있어서).
 // 만들 때 손본 것: 걷기·뛰기의 엉덩이·허리 흔들림을 줄였고, 머리카락은 머리 뼈만 따라가게 했다 (팔을 들어도 옆머리가 끌려가지 않게).
 // 키 1m 로 만들었고 발 = 원점, +z 를 본다. 뼈대(Armature)에 0.01 배율이 걸려 있어 뼈 좌표는 cm.
@@ -397,8 +397,11 @@ const DOLL_KINDS = {
   // 펭귄(scripts/meshy-penguin.mjs): 키 0.8 그대로 (사람보다 작게). 동작을 직접 만들어 안녕 팔 보정(DOLL_WAVE)은 하지 않는다 (waveFix).
   // 앉기는 엉덩이가 거의 바닥까지 내려가 여자 인형 엉덩이 높이만큼 올리고, 몸이 둥글어 등받이에 묻히지 않게 앞으로 민다
   penguin: { file: "/models/meshy-penguin.glb", head: 1, scale: 1, wide: 1, h: 0.8, waveFix: false, sit: { down: -0.19, fwd: 0.1 } },
+  // 알파카(scripts/fix-alpaca-rig.py → scripts/meshy-alpaca.py): 키 1.7 로 만들어져 여자 인형 키로 줄인다. 뼈 단위가 m (boneUnit, 다른 인형은 cm).
+  // 동작은 idle · walk · sit 뿐이라 안녕은 팔 뼈를 돌려 흔든다
+  alpaca: { file: "/models/meshy-alpaca.glb", head: 1, scale: 1 / 1.7, wide: 1, h: 1.7, boneUnit: 1, sit: { down: -0.3, fwd: -0.28 } },
 };
-const dollKind = (l) => (l.hair === "short" ? "boy" : l.hair === "curly" ? "curly" : l.hair === "roller" ? "roller" : l.hair === "penguin" ? "penguin" : "girl");
+const dollKind = (l) => (l.hair === "short" ? "boy" : l.hair === "curly" ? "curly" : l.hair === "roller" ? "roller" : l.hair === "penguin" ? "penguin" : l.hair === "alpaca" ? "alpaca" : "girl");
 // 앉기 동작은 엉덩이를 6cm 내리고 19cm 뒤로 뺀다(키 1 기준). 예전 인형의 엉덩이 자리(벤치 + 0.46)에 맞게 인형을 내리고 앞으로 민다
 const DOLL_SIT = { down: 0.03, fwd: 0.2 };
 // 안녕: 동작 그대로면 든 손이 볼 옆 옆머리 위에 오므로, 위팔·아래팔을 바깥으로 펴고 고개를 반대쪽으로 살짝 기울인다 (인형 기준 축)
@@ -446,9 +449,9 @@ function buildDoll(kind) {
   // 서 있기·앉기는 저절로 돌고, 걷기·안녕은 게임 시간(걸음·동작 시간)에 맞춰 장면을 고른다. 무게로 서로 넘어간다
   const mixer = new THREE.AnimationMixer(model), act = {};
   for (const n of ["idle", "walk", "sit", "wave", "jump"]) { if (!src.clips[n]) continue; const a = mixer.clipAction(src.clips[n]); a.play(); a.setEffectiveWeight(n === "idle" ? 1 : 0); a.paused = n === "walk" || n === "wave" || n === "jump"; act[n] = a; }
-  // 손에 든 간식 자리: 손 뼈 끝(손가락 쪽 +y). 뼈 배율(DOLL_H × 0.01)을 되돌려 간식은 원래 크기로
-  const food = {};
-  for (const [side, name] of [["left", "LeftHand"], ["right", "RightHand"]]) { const a = pivot(0, 7, 2, bone(name)); a.scale.setScalar(1 / (DOLL_H * K.scale * 0.01)); food[side] = { anchor: a, key: "" }; }
+  // 손에 든 간식 자리: 손 뼈 끝(손가락 쪽 +y). 뼈 배율(DOLL_H × 뼈 단위)을 되돌려 간식은 원래 크기로. 뼈 단위는 cm(0.01), 알파카만 m(1)
+  const food = {}, bu = K.boneUnit ?? 0.01;
+  for (const [side, name] of [["left", "LeftHand"], ["right", "RightHand"]]) { const a = pivot(0, 0.07 / bu, 0.02 / bu, bone(name)); a.scale.setScalar(1 / (DOLL_H * K.scale * bu)); food[side] = { anchor: a, key: "" }; }
   // 안녕 동작이 있으면 그 위에 팔을 펴는 보정(DOLL_WAVE), 없으면 팔 뼈를 돌려서 흔든다 (poseDoll)
   const bones = { head: bone("Head"), headScale: K.head, arms: { left: bone("LeftArm"), right: bone("RightArm") }, fore: { left: bone("LeftForeArm"), right: bone("RightForeArm") },
     wave: act.wave && K.waveFix !== false ? DOLL_WAVE.map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) : [] };
@@ -1361,13 +1364,14 @@ if (DOLL) {
 // 들어온 뒤 '친구' 단추로 다시 열면 모습만 바꾼다 (닉네임은 계정이라 그대로)
 const profile = loadProfile();
 const lobby = { mode: profile.nickname ? "login" : "signup", busy: false, checkTimer: 0, checkAbort: null, signedUp: false };
-// Meshy 인형: 여자 · 남자 · 곱슬머리 · 헤어롤 · 펭귄 다섯 가지 (머리 모양으로 인형이 정해진다. 지난번에 고른 쪽을 기억한다)
+// Meshy 인형: 여자 · 남자 · 곱슬머리 · 헤어롤 · 펭귄 · 알파카 여섯 가지 (머리 모양으로 인형이 정해진다. 지난번에 고른 쪽을 기억한다)
 const DOLL_PICKS = [
   { name: "여자", note: "", look: { ...DEFAULT_LOOK, hair: "long" } },
   { name: "남자", note: "", look: { ...DEFAULT_LOOK, hair: "short", outfit: "coat" } },
   { name: "곱슬머리", note: "", look: { ...DEFAULT_LOOK, hair: "curly", outfit: "coat" } },
   { name: "헤어롤", note: "", look: { ...DEFAULT_LOOK, hair: "roller", outfit: "coat" } },
   { name: "펭귄", note: "", look: { ...DEFAULT_LOOK, hair: "penguin", outfit: "coat" } },
+  { name: "알파카", note: "", look: { ...DEFAULT_LOOK, hair: "alpaca", outfit: "coat" } },
 ];
 const custom = !DOLL && PRESETS.every((p) => lookKey(p.look) !== lookKey(state.look)) ? { name: "내 꾸미기", note: "지난번에 꾸민 모습", look: { ...state.look } } : null;
 const pickList = DOLL ? DOLL_PICKS : custom ? [custom, ...PRESETS] : PRESETS;
