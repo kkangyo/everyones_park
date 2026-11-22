@@ -91,6 +91,8 @@ node scripts/meshy-doll-clips.mjs meshy_child_motion.glb assets/models/meshy-chi
   "Idle_11=idle,Walking=walk,Hop_with_Arms_Raised=jump,Look_Back_and_Sit=sit@last,Wave_One_Hand=wave" darkbrown 0.55 yellow
 ```
 
+- **걸음 11자**: Mixamo 걷기가 다리를 엉덩이 관절(±0.058) 바로 밑으로 곧게 내려 통통한 바지가 가운데서 겹쳐 X 자로 보였다. 게임용 파일에 바로 덧씌운다:
+  `node scripts/fix-meshy-walk-width.mjs assets/models/meshy-child.glb assets/models/meshy-child.glb` (알파카 4번과 같은 방법: 키마다 허벅지를 돌려 무릎을 서 있기 발목 너비(±0.076)로, 정강이·발은 원래 방향 유지, 뜬 만큼 골반 내림. 다른 인형·동작은 `[무릎 너비] [동작 이름들]` 인자). meshy-doll-clips.mjs 를 다시 돌렸으면 이것도 다시 돌린다.
 - 게임에 필요한 동작: idle · walk · sit (필수), wave · jump (있으면 씀). 이름표에 없는 동작은 버린다 (지금은 Running · Stand_and_Drink · sleep. 인형은 run 을 쓰지 않는다).
 - Meshy 웹에서 받은 파일이 30MB 를 넘는 건 4K PNG 텍스처 세 장(색 13MB · 노멀 11MB · 금속·거칠기 6MB) 때문이다. 툰 음영은 색만 쓰므로 노멀·금속은 지우고 색을 512 JPEG 로 줄여 약 390KB 가 된다.
 - 끝에 `split` 을 붙이면 겨드랑이 아래에서 팔 옷과 몸통 옷을 잘라 따로 움직이게 한다. 팔이 몸에 거의 붙은 첫 모델에서 맞춘 값이라, 팔이 더 벌어진 지금 모델에서는 소매가 조각나서 쓰지 않는다.
