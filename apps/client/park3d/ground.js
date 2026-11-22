@@ -22,8 +22,8 @@
     { id: 'shore-stone', name: '호숫가 · 석축 가장자리', group: '호수 주변', base: 3, kind: 'shore-stone', color: '#949e9d' },
     { id: 'shore-reeds', name: '호숫가 · 마른 풀과 눈', group: '호수 주변', base: 1, kind: 'reeds', snow: 0.65, color: '#d4d3bc' },
     { id: 'shore-snow', name: '호숫가 · 푸른 눈 둔덕', group: '호수 주변', base: 1, kind: 'shore-snow', color: '#d8e7ed' },
-    { id: '5', name: '얼어붙은 호수 · 통행 불가', group: '호수 주변', base: 5, kind: 'ice', color: '#bcdcf0' },
-    { id: '15', name: '목교 · 나무 데크', group: '기존 바닥', base: 15, kind: 'wood', color: '#b69b72' },
+    { id: '5', name: '흐르는 강물 · 통행 불가', group: '호수 주변', base: 5, kind: 'ice', color: '#bcdcf0' },
+    { id: '15', name: '목교 · 물 위 나무 다리', group: '기존 바닥', base: 15, kind: 'wood', color: '#b69b72' },
     { id: '4', name: '기존 광장', group: '기존 바닥', base: 4, kind: 'stone', color: '#e6d9cc' },
     { id: '16', name: '기존 무대', group: '기존 바닥', base: 16, kind: 'wood', color: '#c9c2b6' },
   ];

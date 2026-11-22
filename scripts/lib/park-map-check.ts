@@ -9,7 +9,7 @@ import { truckPlacementsFromTiled, truckFrontPoint, TRUCKS } from "../../package
 import { seatsFromTiled, seatStandPoint, distanceToSeat, SIT_RANGE_PX } from "../../packages/shared/src/seats";
 import { WINTER_TILE as T, MAIN_LOOP } from "./winter-park-layout";
 
-type Layer = { name: string; type: string; data?: number[]; objects?: { name: string; x: number; y: number; properties?: { name: string; value: unknown }[] }[] };
+type Layer = { name: string; type: string; data?: number[]; objects?: { name: string; x: number; y: number; width?: number; height?: number; properties?: { name: string; value: unknown }[] }[] };
 export type ParkMap = { width: number; height: number; tilewidth: number; tileheight: number; editor3d?: { trees: Record<string, string>; treeScales?: Record<string, number>; groundStyles?: Record<string, string>; lamps: { x: number; y: number; style?: string }[]; heights: Record<string, number> }; layers: Layer[] };
 export interface ParkMapCheck { errors: string[]; problems: string[]; report: Record<string, unknown> }
 
@@ -39,6 +39,12 @@ export function checkParkMap(raw: ParkMap): ParkMapCheck {
       if (e.lamps.some((o) => !Number.isFinite(o.x) || !Number.isFinite(o.y) || o.x < 32 || o.y < 32 || o.x >= (raw.width - 1) * 32 || o.y >= (raw.height - 1) * 32)) errors.push("가로등 위치가 지도 밖임");
     }
   }
+  const tables = layer("tables")?.objects || [], tableNames = new Set<string>();
+  for (const table of tables) {
+    if (!table.name || tableNames.has(table.name)) errors.push("식탁 이름이 비었거나 중복됨");
+    tableNames.add(table.name);
+    if (![table.x, table.y, table.width, table.height].every((n) => Number.isFinite(n) && Number(n) % 32 === 0) || !table.width || !table.height || table.width < 32 || table.height < 32 || table.x < 32 || table.y < 32 || table.x + table.width > (raw.width - 1) * 32 || table.y + table.height > (raw.height - 1) * 32) errors.push(`식탁 ${table.name}: 크기 또는 위치가 잘못됨`);
+  }
   const spawn = layer("spawns")?.objects?.find((o) => o.name === "entrance");
   if (!spawn) errors.push("시작 위치(entrance)가 없음");
   if (errors.length) return { errors, problems, report: {} };
@@ -60,13 +66,17 @@ export function checkParkMap(raw: ParkMap): ParkMapCheck {
   const truckRoutes = trucks.map((t) => ({ id: t.def.id, tiles: reachable(truckFrontPoint(t), `트럭 ${t.def.id} 앞`) }));
   const seats = seatsFromTiled(raw as never, "seats"); let slots = 0;
   for (const s of seats) for (let i = 0; i < s.slots.length; i++) { const p = seatStandPoint(s, i, grid); if (distanceToSeat(p, s) > SIT_RANGE_PX) problems.push(`벤치 ${s.id}/${i}: 앉을 자리에서 너무 멂`); reachable(p, `벤치 ${s.id}/${i}`); slots++; }
-  // 3D 벤치는 늘 카메라 쪽(아래 · 오른쪽)을 본다. 지도 방향이 다르면 일어설 때 3D 벤치 뒤에 선다. 앞이 막혀 뒤로 일어서는 것도 막는다
-  for (const s of seats) {
-    if (s.facing !== "down" && s.facing !== "right") problems.push(`벤치 ${s.id}: 방향 ${s.facing} (3D 는 down · right 만)`);
-    else for (let i = 0; i < s.slots.length; i++) { const p = seatStandPoint(s, i, grid), b = s.box; if (s.facing === "down" ? p.y < b.bottom : p.x < b.right) problems.push(`벤치 ${s.id}/${i}: 앞이 막혀 벤치 뒤·옆에서 일어섬`); }
+  // Every orientation needs a clear front so players stand into the aisle, not behind the backrest.
+  for (const s of seats) for (let i = 0; i < s.slots.length; i++) {
+    const p = seatStandPoint(s, i, grid), b = s.box;
+    const inFront = s.facing === "down" ? p.y >= b.bottom : s.facing === "up" ? p.y <= b.top : s.facing === "left" ? p.x <= b.left : p.x >= b.right;
+    if (!inFront) problems.push(`벤치 ${s.id}/${i}: 앞이 막혀 벤치 뒤·옆에서 일어섬`);
   }
   const landmarks = layer("landmarks")!.objects!;
   const landmarkRoutes = landmarks.map((p) => { const get = (k: string) => p.properties?.find((x) => x.name === k)?.value as number; return { id: p.name, tiles: reachable({ x: get("accessX"), y: get("accessY") }, `랜드마크 ${p.name}`) }; });
+  for (const table of tables) for (let y = table.y / 32; y < (table.y + table.height!) / 32; y++) for (let x = table.x / 32; x < (table.x + table.width!) / 32; x++) {
+    if (!grid.blocked[y * raw.width + x]) problems.push(`식탁 ${table.name}: 충돌 칸이 비어 있음`);
+  }
   const ground = layer("ground")!.data!;
   let ice = 0, bridge = 0;
   for (let i = 0; i < ground.length; i++) {
@@ -88,5 +98,5 @@ export function checkParkMap(raw: ParkMap): ParkMapCheck {
   for (let n = 0; n < queue.length; n++) { const i = queue[n]!, x = i % grid.cols, y = Math.floor(i / grid.cols); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + dx!, yy = y + dy!; if (xx < 0 || yy < 0 || xx >= grid.cols || yy >= grid.rows) continue; const j = yy * grid.cols + xx; if (!grid.blocked[j] && !visited[j]) { visited[j] = 1; queue.push(j); } } }
   const walkable = Array.from(grid.blocked).filter((n) => !n).length;
   if (queue.length !== walkable) problems.push(`갈 수 없는 빈 땅이 ${walkable - queue.length}칸 있음 (나무 등으로 둘러싸임)`);
-  return { errors, problems: [...new Set(problems)], report: { dimensions: [raw.width, raw.height], pixels: [raw.width * 32, raw.height * 32], walkableTiles: walkable, reachableWalkableTiles: queue.length, trucks: trucks.length, benches: seats.length, seats: slots, landmarks: landmarks.length, checkedRoutes, iceTiles: ice, bridgeTiles: bridge, mainLoopSegments: MAIN_LOOP.length, loopLengthTiles: loopLength, truckRoutes, landmarkRoutes } };
+  return { errors, problems: [...new Set(problems)], report: { dimensions: [raw.width, raw.height], pixels: [raw.width * 32, raw.height * 32], walkableTiles: walkable, reachableWalkableTiles: queue.length, trucks: trucks.length, benches: seats.length, tables: tables.length, seats: slots, landmarks: landmarks.length, checkedRoutes, iceTiles: ice, bridgeTiles: bridge, mainLoopSegments: MAIN_LOOP.length, loopLengthTiles: loopLength, truckRoutes, landmarkRoutes } };
 }

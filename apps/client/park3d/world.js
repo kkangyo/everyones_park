@@ -66,7 +66,7 @@ for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
   const cls = new Uint8Array(MW * MH);
   const pad = (l, t, r, b) => { for (let y = Math.max(0, t); y <= Math.min(MH - 1, b); y++) for (let x = Math.max(0, l); x <= Math.min(MW - 1, r); x++) cls[y * MW + x] = 2; };
   for (const o of layer("trucks").objects) pad(Math.floor(o.x / 32) - 2, Math.floor(o.y / 32) - 2, Math.ceil((o.x + o.width) / 32) + 1, Math.ceil((o.y + o.height) / 32) + 2);
-  for (const o of layer("seats").objects) pad(Math.floor(o.x / 32) - 1, Math.floor(o.y / 32) - 1, Math.ceil((o.x + o.width) / 32), Math.ceil((o.y + o.height) / 32));
+  for (const o of [...layer("seats").objects, ...(layer("tables")?.objects || [])]) pad(Math.floor(o.x / 32) - 1, Math.floor(o.y / 32) - 1, Math.ceil((o.x + o.width) / 32), Math.ceil((o.y + o.height) / 32));
   for (let i = 0; i < MW * MH; i++) { const t = GROUND[i]; if (t === G.ice || t === G.bridge) cls[i] = 1; else if (t === G.plaza || t === G.stage) cls[i] = 2; }
   const seen = new Uint8Array(MW * MH);
   for (let i0 = 0; i0 < MW * MH; i0++) {
@@ -78,6 +78,49 @@ for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
   }
 }
 const baseAt = (x, y) => BASE[clampY(y) * MW + clampX(x)];
+// Derive each bridge's length and direction from its connected tiles, including diagonal spans.
+// The arch and short bank ramps feed the shared walking height as well as the visible timber.
+const isBridgeRoad = (tile) => tile === G.path || tile === G.plaza || tile === G.stage;
+const bridgeIds = new Int32Array(MW * MH).fill(-1), bridgeSpans = [];
+for (let start = 0; start < GROUND.length; start++) {
+  if (GROUND[start] !== G.bridge || bridgeIds[start] !== -1) continue;
+  const id = bridgeSpans.length, cells = [start]; bridgeIds[start] = id;
+  for (let head = 0; head < cells.length; head++) {
+    const i = cells[head], x = i % MW, z = Math.floor(i / MW);
+    for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x + dx, nz = z + dz, next = nz * MW + nx;
+      if (nx < 0 || nz < 0 || nx >= MW || nz >= MH || GROUND[next] !== G.bridge || bridgeIds[next] !== -1) continue;
+      bridgeIds[next] = id; cells.push(next);
+    }
+  }
+  let cx = 0, cz = 0;
+  for (const i of cells) { cx += i % MW + 0.5; cz += Math.floor(i / MW) + 0.5; }
+  cx /= cells.length; cz /= cells.length;
+  let xx = 0, xz = 0, zz = 0;
+  for (const i of cells) { const x = i % MW + 0.5 - cx, z = Math.floor(i / MW) + 0.5 - cz; xx += x*x; xz += x*z; zz += z*z; }
+  const angle = Math.atan2(2 * xz, xx - zz) / 2, dx = Math.cos(angle), dz = Math.sin(angle);
+  let min = Infinity, max = -Infinity;
+  for (const i of cells) for (const [ox, oz] of [[0,0],[1,0],[0,1],[1,1]]) {
+    const projection = (i % MW + ox) * dx + (Math.floor(i / MW) + oz) * dz;
+    min = Math.min(min, projection); max = Math.max(max, projection);
+  }
+  bridgeSpans.push({ dx, dz, min, length: max - min, rise: Math.min(1.8, (max - min) * 0.18) });
+}
+function bridgeLiftAt(x, z) {
+  let nearest = 1, span;
+  const tx = Math.floor(x), tz = Math.floor(z);
+  for (let oz = -1; oz <= 1; oz++) for (let ox = -1; ox <= 1; ox++) {
+    const nx = tx + ox, nz = tz + oz;
+    if (nx < 0 || nz < 0 || nx >= MW || nz >= MH) continue;
+    const id = bridgeIds[nz * MW + nx]; if (id === -1) continue;
+    const distance = Math.hypot(Math.max(nx - x, 0, x - nx - 1), Math.max(nz - z, 0, z - nz - 1));
+    if (distance < nearest) { nearest = distance; span = bridgeSpans[id]; }
+  }
+  if (!span || nearest >= 0.8) return 0;
+  const t = Math.max(0, Math.min(1, (x * span.dx + z * span.dz - span.min) / span.length));
+  return span.rise * Math.sin(Math.PI * t) ** 2 * (1 - smooth(0, 0.8, nearest));
+}
+
 const HR = 2, HW = MW * HR + 1, HH = MH * HR + 1, HEIGHT = new Float32Array(HW * HH);
 const RAISED = { [G.stage]: 0.36, [G.bridge]: 0.16 }; // 덩어리 바탕 높이에서 이만큼 올린 단
 for (let j = 0; j < HH; j++) for (let i = 0; i < HW; i++) {
@@ -89,7 +132,7 @@ for (let j = 0; j < HH; j++) for (let i = 0; i < HW; i++) {
   h += (vnoise(x * 0.07, z * 0.07) * 0.65 + vnoise(x * 0.19 + 31, z * 0.19 + 7) * 0.35 - 0.42) * 0.5 * smooth(1.2, 6, fieldAt(softDist, x, z));
   // 무대·목교는 가장자리만 살짝 깎은 단으로 (칸 경계의 꼭짓점은 반 높이)
   for (const t of [G.stage, G.bridge]) { let k = 0, b = 0; for (const [dx, dz] of [[-0.1, -0.1], [0.1, -0.1], [-0.1, 0.1], [0.1, 0.1]]) if (gAt(Math.floor(x + dx), Math.floor(z + dz)) === t) { k++; b = baseAt(Math.floor(x + dx), Math.floor(z + dz)); } if (k) h = h + (b + RAISED[t] - h) * (k / 4); }
-  HEIGHT[j * HW + i] = h;
+  HEIGHT[j * HW + i] = h + bridgeLiftAt(x, z);
 }
 function editHeightAt(x, z) {
   const xx = x - 0.5, zz = z - 0.5, ix = Math.floor(xx), iz = Math.floor(zz), u = xx - ix, v = zz - iz;
@@ -100,6 +143,19 @@ function heightAt(x, z) {
   const fx = Math.max(0, Math.min(HW - 1.001, x * HR)), fz = Math.max(0, Math.min(HH - 1.001, z * HR)), i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
   const a = HEIGHT[j * HW + i], b = HEIGHT[j * HW + i + 1], c = HEIGHT[(j + 1) * HW + i], d = HEIGHT[(j + 1) * HW + i + 1];
   return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v + editHeightAt(x, z);
+}
+
+// Collision/character height stays on the deck; the rendered riverbed is below the water.
+const isWaterTile = (tile) => tile === G.ice || tile === G.bridge;
+function waterHeightAt(x, z) {
+  return fieldAt(BASE, x, z) - 0.32 + editHeightAt(x, z);
+}
+function terrainHeightAt(x, z) {
+  const touching = [-0.01, 0.01].flatMap((dx) => [-0.01, 0.01].map((dz) => gAt(Math.floor(x + dx), Math.floor(z + dz))));
+  // The abutment meets the full width of the road; excavating it into the riverbed
+  // would leave a visible gap and a drop at the bridge entrance.
+  if (touching.includes(G.bridge) && touching.some(isBridgeRoad)) return heightAt(x, z);
+  return touching.some(isWaterTile) ? Math.min(heightAt(x, z), waterHeightAt(x, z) - 0.22) : heightAt(x, z);
 }
 
 // ───────── 바닥 텍스처 (1칸 = 8px): 눈·길·얼음 경계는 칸 모양 대신 둥글게 섞고, 광장·목교·무대만 반듯하게 ─────────
@@ -142,10 +198,11 @@ function heightAt(x, z) {
   g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(window.ParkGround.compose(c, MAP, shadeAt)); tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   const geo = new THREE.PlaneGeometry(MW, MH, MW * HR, MH * HR).rotateX(-Math.PI / 2), gp = geo.attributes.position;
-  for (let k = 0; k < gp.count; k++) gp.setY(k, heightAt(gp.getX(k) + MW / 2, gp.getZ(k) + MH / 2));
+  for (let k = 0; k < gp.count; k++) gp.setY(k, terrainHeightAt(gp.getX(k) + MW / 2, gp.getZ(k) + MH / 2));
   geo.computeVertexNormals();
   // 바닥은 계단 음영 대신 부드러운 음영 (눈 언덕이 매끈하게 보이도록)
   const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+  ground.name = "park-terrain";
   ground.position.set(MW / 2, 0, MH / 2); ground.receiveShadow = true; scene.add(ground);
   // 지도 바깥 바닥: 지도를 둘러싼 네 장 (지도 안의 낮은 땅을 뚫고 올라오지 않게 가운데는 비운다)
   for (const [w, d, x, z] of [[MW + 60, 30, MW / 2, -15], [MW + 60, 30, MW / 2, MH + 15], [30, MH, -15, MH / 2], [30, MH, MW + 15, MH / 2]]) {
@@ -153,26 +210,77 @@ function heightAt(x, z) {
   }
 }
 
-// 얼음 연못: 바닥 무늬 위에 얇은 반사광과 얼음 결을 얹어 물의 깊이를 더한다.
-{
-  const glints = [], cracks = [];
-  for (let z = 1; z < MH - 1; z++) for (let x = 1; x < MW - 1; x++) {
-    if (groundAt(x, z) !== G.ice || OBST[z * MW + x]) continue;
-    const h = hash(x * 17 + 3, z * 29 + 5);
-    if (h < 0.22) glints.push({ x: x + 0.25 + hash(z, x) * 0.5, z: z + 0.25 + hash(x + 7, z) * 0.5, s: 0.16 + h * 0.22, rot: h * Math.PI });
-    if (h > 0.84) cracks.push({ x: x + 0.5, z: z + 0.5, len: 0.24 + hash(z + 13, x) * 0.28, rot: h * Math.PI });
-  }
-  const glintGeo = new THREE.CircleGeometry(1, 16); glintGeo.rotateX(-Math.PI / 2);
-  const glintMat = new THREE.MeshBasicMaterial({ color: 0xf4fcff, transparent: true, opacity: 0.54, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
-  const shine = new THREE.InstancedMesh(glintGeo, glintMat, glints.length), dummy = new THREE.Object3D();
-  glints.forEach((v, i) => { dummy.position.set(v.x, heightAt(v.x, v.z) + 0.012, v.z); dummy.rotation.y = v.rot; dummy.scale.set(v.s * 1.8, 1, v.s * 0.48); dummy.updateMatrix(); shine.setMatrixAt(i, dummy.matrix); });
-  shine.instanceMatrix.needsUpdate = true; shine.frustumCulled = false; scene.add(shine);
-  for (const v of cracks) {
-    const points = [new THREE.Vector3(-v.len, 0, 0), new THREE.Vector3(-v.len * 0.25, 0, 0.025), new THREE.Vector3(v.len * 0.2, 0, -0.018), new THREE.Vector3(v.len, 0, 0.012)];
-    const curve = new THREE.CatmullRomCurve3(points); const line = new THREE.Mesh(new THREE.TubeGeometry(curve, 8, 0.009, 4, false), new THREE.MeshBasicMaterial({ color: 0x8fc5e2, transparent: true, opacity: 0.64, depthWrite: false }));
-    line.position.set(v.x, heightAt(v.x, v.z) + 0.018, v.z); line.rotation.y = v.rot; scene.add(line);
+// Water continues beneath bridge tiles; its shader moves without rebuilding geometry.
+const waterPositions = [], waterIndices = [], wetPixels = new Uint8Array(MW * MH * 4);
+for (let i = 0; i < MW * MH; i++) { const wet = isWaterTile(GROUND[i]) ? 255 : 0; wetPixels.set([wet, wet, wet, 255], i * 4); }
+const waterMask = new THREE.DataTexture(wetPixels, MW, MH, THREE.RGBAFormat);
+waterMask.minFilter = waterMask.magFilter = THREE.LinearFilter; waterMask.needsUpdate = true;
+for (let z = 0; z < MH; z++) for (let x = 0; x < MW; x++) {
+  if (![-1, 0, 1].some((dx) => [-1, 0, 1].some((dz) => isWaterTile(gAt(x + dx, z + dz))))) continue;
+  const start = waterPositions.length / 3;
+  for (const [dx, dz] of [[0, 0], [0, 1], [1, 0], [1, 1]]) waterPositions.push(x + dx, waterHeightAt(x + dx, z + dz), z + dz);
+  waterIndices.push(start, start + 1, start + 2, start + 2, start + 1, start + 3);
+}
+const waterGeometry = new THREE.BufferGeometry();
+waterGeometry.setAttribute('position', new THREE.Float32BufferAttribute(waterPositions, 3)); waterGeometry.setIndex(waterIndices);
+waterGeometry.computeVertexNormals();
+const waterMaterial = new THREE.ShaderMaterial({
+  uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uTime: { value: 0 }, uMask: { value: waterMask }, uMapSize: { value: new THREE.Vector2(MW, MH) } }, fog: true,
+  vertexShader: `
+    uniform float uTime; varying vec2 vWater;
+    #include <fog_pars_vertex>
+    void main() {
+      vWater = position.xz;
+      vec3 p = position;
+      p.y += 0.012 * sin(p.x * 2.1 + p.z * 1.4 - uTime * 1.3);
+      vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+      gl_Position = projectionMatrix * mvPosition;
+      #include <fog_vertex>
+    }`,
+  fragmentShader: `
+    uniform float uTime; uniform sampler2D uMask; uniform vec2 uMapSize; varying vec2 vWater;
+    #include <fog_pars_fragment>
+    void main() {
+      vec2 p = vWater;
+      float wet = texture2D(uMask, p / uMapSize).r;
+      float shore = 0.48 + sin(p.x * 7.0 + sin(p.y * 5.0)) * 0.045;
+      if (wet < shore) discard;
+      float a = p.x * 2.1 + p.y * 1.4 - uTime * 1.3;
+      float b = p.x * -3.8 + p.y * 2.6 - uTime * 0.83;
+      float swell = sin(a) * 0.5 + sin(b) * 0.24;
+      vec3 color = mix(vec3(0.22, 0.48, 0.60), vec3(0.47, 0.73, 0.80), 0.5 + swell * 0.4);
+      float ripple = sin(p.y * 15.0 + p.x * 2.2 + sin(a) * 1.5 - uTime * 2.0);
+      float broken = smoothstep(0.10, 0.85, sin(p.x * 4.2 + sin(b) + uTime * 0.4));
+      float crest = smoothstep(0.88, 0.99, ripple) * broken;
+      color = mix(color, vec3(0.79, 0.93, 0.96), crest * 0.38);
+      float glint = pow(max(0.0, sin(a * 2.3 + sin(b)) * sin(b * 1.7 - uTime * 0.3)), 20.0);
+      color += vec3(0.26, 0.28, 0.25) * glint;
+      float rim = 1.0 - smoothstep(shore, shore + 0.16, wet);
+      color = mix(color, vec3(0.72, 0.86, 0.89), rim * 0.65);
+      gl_FragColor = vec4(color, 1.0);
+      #include <fog_fragment>
+    }`,
+});
+const water = new THREE.Mesh(waterGeometry, waterMaterial); water.name = 'flowing-water'; scene.add(water);
+
+// Separate timber slabs have visible thickness, gaps and an open water channel below.
+const deckPositions = [], deckColors = [];
+const faces = [[0, 2, 1, 1, 2, 3], [4, 5, 6, 5, 7, 6], [0, 1, 4, 1, 5, 4], [2, 6, 3, 3, 6, 7], [0, 4, 2, 2, 4, 6], [1, 3, 5, 3, 7, 5]];
+for (let z = 0; z < MH; z++) for (let x = 0; x < MW; x++) {
+  if (gAt(x, z) !== G.bridge) continue;
+  for (let plank = 0; plank < 4; plank++) {
+    const x0 = x + 0.008, x1 = x + 0.992, z0 = z + plank / 4 + 0.008, z1 = z + (plank + 1) / 4 - 0.008;
+    const corners = [[x0,z0], [x1,z0], [x0,z1], [x1,z1]];
+    const vertices = [0, 1].flatMap((bottom) => corners.map(([px,pz]) => [px, heightAt(px,pz) - bottom * 0.12, pz]));
+    const color = new THREE.Color().setHSL(0.095, 0.29, 0.44 + hash(x * 4 + plank, z) * 0.10);
+    for (const face of faces) for (const i of face) { deckPositions.push(...vertices[i]); deckColors.push(color.r, color.g, color.b); }
   }
 }
+const deckGeometry = new THREE.BufferGeometry();
+deckGeometry.setAttribute('position', new THREE.Float32BufferAttribute(deckPositions, 3));
+deckGeometry.setAttribute('color', new THREE.Float32BufferAttribute(deckColors, 3)); deckGeometry.computeVertexNormals();
+const deck = new THREE.Mesh(deckGeometry, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+deck.name = 'bridge-deck'; deck.castShadow = deck.receiveShadow = true; scene.add(deck);
 
 // ───────── 장애물: 나무·바위·생울타리·울타리 (인스턴싱) ─────────
 function instanced(geo, color, items, fn, mat) {
@@ -187,10 +295,20 @@ for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
   const o = OBST[y * MW + x], h = hash(x, y), h2 = hash(y * 3 + 7, x * 5 + 1), h3 = hash(x + 101, y + 57);
   let t = null, park = false;
   if (o === G.tree) { t = { x: x + 0.5 + (h - 0.5) * 0.4, z: y + 0.5 + (h2 - 0.5) * 0.4 }; park = true; }
-  else if (o === G.wall && !inside[y * MW + x] && edgeDist[y * MW + x] <= 8 && h < 0.42) t = { x: x + 0.5 + (h2 - 0.5) * 0.7, z: y + 0.5 + (h - 0.5) * 0.7 };
+  else if (o === G.wall && !inside[y * MW + x] && edgeDist[y * MW + x] <= 8 && h < 0.22) t = { x: x + 0.5 + (h2 - 0.5) * 0.7, z: y + 0.5 + (h - 0.5) * 0.7 };
   if (t) {
     const chosen = park && MAP.editor3d?.trees?.[y * MW + x];
     t.rot = chosen ? 0 : h3 * 6.28; t.v = chosen ? 0.5 : h2; trees.push(t);
+    if (!park) {
+      // A more open perimeter with larger silhouettes and a mix of all winter species.
+      // Coordinate hashes keep the grove stable across reloads and editor rebuilds.
+      const pick = hash(x + 307, y + 911);
+      t.s = 1.3 + hash(x + 503, y + 701) * 0.6; t.sy = 1;
+      if (pick < 0.22) pines.push(t);
+      else if (pick < 0.42) spruces.push(t);
+      else bare[Math.min(BARE.length - 1, Math.floor(hash(x + 887, y + 199) * BARE.length))].push(t);
+      continue;
+    }
     if (chosen) {
       t.x = x + 0.5; t.z = y + 0.5; t.s = MAP.editor3d?.treeScales?.[y * MW + x] ?? 1; t.sy = 1;
       if (chosen === "pine") pines.push(t);
@@ -198,9 +316,9 @@ for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
       else bare[Math.min(BARE.length - 1, Number(chosen.slice(4)) || 0)].push(t);
       continue;
     }
-    const pick = park ? h3 : h3 * 0.7 + 0.3 * h;   // 공원 안은 잎 진 나무가 많고, 바깥 숲은 상록수가 많다
-    if (pick < (park ? 0.28 : 0.5)) { t.s = 0.8 + h * 0.5; t.sy = (0.85 + h2 * 0.4) * 1.06; pines.push(t); }
-    else if (pick < (park ? 0.4 : 0.75)) { t.s = 0.75 + h * 0.35; t.sy = (1.1 + h2 * 0.5) * 1.06; spruces.push(t); }
+    const pick = h3; // Interior automatic trees retain the original species balance.
+    if (pick < 0.28) { t.s = 0.8 + h * 0.5; t.sy = (0.85 + h2 * 0.4) * 1.06; pines.push(t); }
+    else if (pick < 0.4) { t.s = 0.75 + h * 0.35; t.sy = (1.1 + h2 * 0.5) * 1.06; spruces.push(t); }
     else { const k = Math.floor(hash(x * 7, y * 13) * BARE.length); t.s = 0.85 + h * 0.35; t.sy = (0.9 + h2 * 0.2) * 1.06; bare[k].push(t); }
     if (park) t.s *= MAP.editor3d?.treeScales?.[y * MW + x] ?? 1;
     continue;
@@ -236,37 +354,53 @@ instanced(new THREE.CylinderGeometry(0.1, 0.11, 0.5, 10), 0xb89070, fences, (t, 
 instanced(SBALL, 0xffffff, fences, (t, p, s) => { p.set(t.x, 0.53 + heightAt(t.x, t.z), t.z); s.set(0.12, 0.08, 0.12); });
 
 // 바람에 쌓인 낮은 눈둔덕 (길에서 떨어진 넓은 눈밭에만 드문드문)·마른 풀 덤불·목교 난간
-const drifts = [], grass = [], rails = [], railBeams = [], tilt = new THREE.Quaternion(), ax = new THREE.Vector3();
+const drifts = [], grass = [], rails = [], railBeams = [], railPosts = new Set(), tilt = new THREE.Quaternion(), ax = new THREE.Vector3();
 for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
   const t = groundAt(x, y), h = hash(x * 3 + 1, y * 7 + 2), h2 = hash(y + 11, x + 5), d = softDist[y * MW + x];
   if (!OBST[y * MW + x] && SOFT.has(t) && t !== G.outside) {
     if (d >= 2.5 && h < 0.03) drifts.push({ x: x + h2, z: y + 0.5, s: 0.9 + h2 * 1.1, rot: h2 * 6.28 });
     if (d >= 1.5 && h2 < 0.025) for (let k = 0; k < 5; k++) grass.push({ x: x + 0.5 + (hash(x, y + k) - 0.5) * 0.25, z: y + 0.5 + (hash(y, x + k) - 0.5) * 0.25, s: 0.7 + hash(x + k, y) * 0.6, rot: k * 1.26 + h, lean: 0.25 + hash(k, x) * 0.35 });
   }
-  if (t === G.bridge) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (gAt(x + dx, y + dy) === G.ice) {
-    rails.push({ x: x + 0.5 + dx * 0.45, z: y + 0.5 + dy * 0.45, rot: 0 });
-    if (dx && gAt(x, y + 1) === G.bridge) railBeams.push({ x: x + 0.5 + dx * 0.45, z: y + 1, along: "z" });
-    if (dy && gAt(x + 1, y) === G.bridge) railBeams.push({ x: x + 1, z: y + 0.5 + dy * 0.45, along: "x" });
+  if (t === G.bridge) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const neighbor = gAt(x + dx, y + dy);
+    const span = bridgeSpans[bridgeIds[y * MW + x]], sideEdge = Math.abs(dx * span.dx + dy * span.dz) < 0.6;
+    if (isBridgeRoad(neighbor) || neighbor === G.bridge || (neighbor !== G.ice && !sideEdge && bridgeLiftAt(x + 0.5, y + 0.5) < 0.4)) continue;
+    const endpoints = dx ? [[x + (dx > 0 ? 1 : 0), y], [x + (dx > 0 ? 1 : 0), y + 1]] : [[x, y + (dy > 0 ? 1 : 0)], [x + 1, y + (dy > 0 ? 1 : 0)]];
+    for (const [px, pz] of endpoints) {
+      const key = px + "," + pz;
+      if (!railPosts.has(key)) { railPosts.add(key); rails.push({ x: px, z: pz, rot: 0 }); }
+    }
+    railBeams.push({ x: (endpoints[0][0] + endpoints[1][0]) / 2, z: (endpoints[0][1] + endpoints[1][1]) / 2, along: dx ? "z" : "x" });
   }
 }
 instanced(MOUND, 0, drifts, (t, p, s) => { p.set(t.x, heightAt(t.x, t.z) - 0.03, t.z); s.set(t.s, 0.12 + t.s * 0.04, t.s * 0.55); }, SNOWM);
 instanced(new THREE.ConeGeometry(0.055, 0.3, 5).translate(0, 0.15, 0), 0xb59a72, grass, (t, p, s, q) => { p.set(t.x, heightAt(t.x, t.z) - 0.03, t.z); s.setScalar(t.s); q.multiply(tilt.setFromAxisAngle(ax.set(1, 0, 0), t.lean)); });
-instanced(new THREE.CylinderGeometry(0.07, 0.08, 0.5, 8), 0x8f7556, rails, (t, p, s) => { p.set(t.x, heightAt(t.x, t.z) + 0.25, t.z); s.setScalar(1); });
-instanced(SBALL, 0xffffff, rails, (t, p, s) => { p.set(t.x, heightAt(t.x, t.z) + 0.52, t.z); s.set(0.09, 0.06, 0.09); });
+instanced(new THREE.CylinderGeometry(0.065, 0.085, 1, 8), 0x72553d, rails, (t, p, s) => {
+  const top = heightAt(t.x, t.z) - 0.04, bottom = waterHeightAt(t.x, t.z) - 0.23;
+  p.set(t.x, (top + bottom) / 2, t.z); s.set(1, Math.max(0.1, top - bottom), 1);
+});
+instanced(new THREE.CylinderGeometry(0.07, 0.08, 0.8, 8), 0x8f7556, rails, (t, p, s) => { p.set(t.x, heightAt(t.x, t.z) + 0.4, t.z); s.setScalar(1); });
+instanced(SBALL, 0xffffff, rails, (t, p, s) => { p.set(t.x, heightAt(t.x, t.z) + 0.82, t.z); s.set(0.09, 0.06, 0.09); });
 for (const r of railBeams) {
-  const beam = box(0.94, 0.09, 0.09, 0x8f7556, r.x, heightAt(r.x, r.z) + 0.49, r.z, null, 0.035);
-  if (r.along === "z") beam.rotation.y = Math.PI / 2;
-  const snowCap = box(0.86, 0.025, 0.1, 0xfafcff, r.x, heightAt(r.x, r.z) + 0.55, r.z, null, 0.03);
-  if (r.along === "z") snowCap.rotation.y = Math.PI / 2;
+  const dx = r.along === "x" ? 0.5 : 0, dz = r.along === "z" ? 0.5 : 0;
+  const start = new THREE.Vector3(r.x - dx, heightAt(r.x - dx, r.z - dz), r.z - dz);
+  const end = new THREE.Vector3(r.x + dx, heightAt(r.x + dx, r.z + dz), r.z + dz);
+  const direction = end.clone().sub(start), center = start.clone().add(end).multiplyScalar(0.5);
+  // Upper/lower rails and underside beams all follow the arch instead of staying horizontal.
+  for (const [offset, thickness, color] of [[0.77, 0.09, 0x8f7556], [0.35, 0.065, 0x8f7556], [-0.22, 0.18, 0x72553d], [0.83, 0.025, 0xfafcff]]) {
+    const beam = box(direction.length(), thickness, 0.10, color, center.x, center.y + offset, center.z, null, Math.min(0.025, thickness * 0.3));
+    beam.name = offset === 0.77 ? "bridge-rail" : "bridge-structure";
+    beam.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction.clone().normalize());
+  }
 }
 
 // ───────── 벤치 (seats 레이어: slots 칸 수) ─────────
-// 시점이 고정이라 등받이가 화면 안쪽에 오도록 모든 벤치가 카메라 쪽(+z 또는 +x)을 본다. 앉으면 앞모습
+// Bench geometry, seated characters and server-facing data share all four orientations.
 const SEATS = [];
 for (const o of layer("seats").objects) {
   const f0 = prop(o, "facing") || "down", side = f0 === "left" || f0 === "right", x = o.x / 32, z = o.y / 32, w = o.width / 32, h = o.height / 32, n = prop(o, "slots") || 2;
   const long = side ? h : w;
-  const b = new THREE.Group(); b.position.set(x + w / 2, heightAt(x + w / 2, z + h / 2), z + h / 2); b.rotation.y = side ? Math.PI / 2 : 0; scene.add(b);
+  const b = new THREE.Group(); b.position.set(x + w / 2, heightAt(x + w / 2, z + h / 2), z + h / 2); b.rotation.y = { down: 0, right: Math.PI / 2, up: Math.PI, left: -Math.PI / 2 }[f0]; scene.add(b);
   box(long - 0.12, 0.16, 0.48, 0xc8946a, 0, 0.34, 0, b, 0.07); box(long - 0.12, 0.34, 0.13, 0xc8946a, 0, 0.62, -0.2, b, 0.06);
   for (const s of [-1, 1]) for (const z of [-0.13, 0.13]) cyl(0.07, 0.08, 0.28, 0x55607a, s * (long / 2 - 0.28), 0.14, z, b, 10);
   // 둥근 금속 팔걸이와 나뭇결 이음선을 더해 작은 공원 가구처럼 보이게
@@ -277,9 +411,24 @@ for (const o of layer("seats").objects) {
   box(long - 0.3, 0.035, 0.018, 0xa86f4f, 0, 0.36, 0.04, b, 0.008); box(long - 0.3, 0.07, 0.36, 0xfafcff, 0, 0.44, 0.02, b, 0.035); box(long - 0.3, 0.06, 0.12, 0xfafcff, 0, 0.81, -0.2, b, 0.03);
   // 등받이 꼭대기의 작고 불규칙한 눈 뭉치
   for (const s of [-1, 0, 1]) { const cap = M(SPH, SNOWM, s * (long / 2 - 0.2), 0.82, -0.2, b); cap.scale.set(0.12, 0.045, 0.075); cap.castShadow = false; }
-  const slots = Array.from({ length: n }, (_, i) => side ? { x: x + w / 2 + 0.08, z: z + (i + 0.5) * h / n } : { x: x + (i + 0.5) * w / n, z: z + h / 2 + 0.08 });
-  const seat = { id: o.name, side, box: { l: x, t: z, r: x + w, b: z + h }, slots, group: b, obj: o };
+  const front = { down: [0,1], up: [0,-1], left: [-1,0], right: [1,0] }[f0];
+  const slots = Array.from({ length: n }, (_, i) => ({ x: (side ? x + w / 2 : x + (i + 0.5) * w / n) + front[0] * 0.08, z: (side ? z + (i + 0.5) * h / n : z + h / 2) + front[1] * 0.08 }));
+  const seat = { id: o.name, side, facing: f0, yaw: b.rotation.y, box: { l: x, t: z, r: x + w, b: z + h }, slots, group: b, obj: o };
   b.userData.seat = seat; SEATS.push(seat);
+}
+
+// Picnic tables occupy their own blocked footprint; the benches remain real, usable seats.
+for (const o of layer("tables")?.objects || []) {
+  const x = o.x / 32, z = o.y / 32, w = o.width / 32, h = o.height / 32, side = h > w, long = Math.max(w, h);
+  const table = new THREE.Group(); table.name = "picnic-table";
+  table.position.set(x + w / 2, heightAt(x + w / 2, z + h / 2), z + h / 2); table.rotation.y = side ? Math.PI / 2 : 0; scene.add(table);
+  for (let i = 0; i < 4; i++) box(long - 0.08, 0.10, 0.205, i % 2 ? 0xb68b61 : 0xc59a6d, 0, 0.72, (i - 1.5) * 0.22, table, 0.025);
+  for (const sx of [-1,1]) {
+    box(0.12, 0.64, 0.62, 0x76563f, sx * (long / 2 - 0.36), 0.35, 0, table, 0.025);
+    box(0.32, 0.10, 0.83, 0x76563f, sx * (long / 2 - 0.36), 0.08, 0, table, 0.025);
+  }
+  box(long - 0.52, 0.12, 0.12, 0x8c694a, 0, 0.30, 0, table, 0.025);
+  box(long - 0.35, 0.025, 0.08, 0xfafcff, 0, 0.785, -0.35, table, 0.01);
 }
 
 let lampRoot = null;
@@ -328,11 +477,12 @@ for (const o of layer("trucks").objects) {
 }
 
 
-    return { root, heightAt, inside, SEATS, trucks, dispose() {
+    return { root, heightAt, inside, SEATS, trucks, update(time) { waterMaterial.uniforms.uTime.value = time; }, dispose() {
       const geometries = new Set(), materials = new Set(), textures = new Set();
       root.traverse((o) => { if (o.geometry) geometries.add(o.geometry); if (o.isInstancedMesh) o.dispose(); if (o.material) materials.add(o.material); });
       geos.forEach((g) => geometries.add(g)); mats.forEach((m) => materials.add(m));
       materials.forEach((m) => { if (m.map) textures.add(m.map); if (m.gradientMap) textures.add(m.gradientMap); m.dispose(); });
+      textures.add(waterMask);
       geometries.forEach((g) => g.dispose()); textures.forEach((t) => t.dispose());
       if (root.parent) root.parent.remove(root);
     } };

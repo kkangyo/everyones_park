@@ -49,13 +49,88 @@ async function signature(page, getWorld) {
     await editor.waitForFunction(() => window.__editorReview);
     const original = await signature(main, 'window.__worldReview');
     assert.deepEqual(await signature(editor, 'window.__editorReview.world()'), original, 'Main and editor scenery must match');
+    await main.close(); // The retained signature is sufficient for later editor comparisons.
+    assert.equal(await editor.locator('#eTreeSize').getAttribute('step'), '1');
+    await editor.locator('#eTreeSize').evaluate((slider) => { slider.value = '62'; slider.dispatchEvent(new Event('input')); });
+    assert.equal(await editor.locator('#eTreeSizeLabel').textContent(), '62%');
+    await editor.locator('#eTreeSize').evaluate((slider) => { slider.value = '100'; slider.dispatchEvent(new Event('input')); });
+    async function chooseImage(id, value) {
+      const picker = editor.locator('#' + id + 'Picker');
+      if (await picker.getAttribute('open') === null) await picker.locator('summary').click();
+      await picker.locator('button[data-value="' + value + '"]').click();
+    }
+    assert.equal(await editor.locator('#eTree, #eTile, #eLamp').evaluateAll((inputs) => inputs.every((input) => input.type === 'hidden')), true);
+    async function cameraPitch() {
+      return editor.evaluate(() => {
+        const direction = window.__editorReview.camera.getWorldDirection(new THREE.Vector3());
+        return Math.asin(-direction.y) * 180 / Math.PI;
+      });
+    }
+    assert.ok(Math.abs(await cameraPitch() - 55) < 0.01, 'Editor starts above the park');
+    for (const pitch of [85, 35, 55]) {
+      await editor.locator('#ePitch').evaluate((slider, value) => { slider.value = value; slider.dispatchEvent(new Event('input')); }, String(pitch));
+      assert.ok(Math.abs(await cameraPitch() - pitch) < 0.01, 'Camera elevation follows slider');
+      assert.equal(await editor.locator('#ePitchLabel').textContent(), pitch + '°');
+    }
+    // Every choice shows its actual surface/model beside its name and selects the matching tool.
+    for (const [id, count, value, tool] of [['eTree', 10, 'bare3', 'tree'], ['eTile', 25, 'brick-brown', 'tile'], ['eLamp', 9, 'twin', 'lamp']]) {
+      const picker = editor.locator('#' + id + 'Picker');
+      await picker.locator('summary').click();
+      assert.equal(await picker.locator('button').count(), count);
+      assert.equal(await picker.locator('button img').evaluateAll((images) => images.every((image) => image.complete && image.naturalWidth > 0)), true);
+      assert.equal(await picker.locator('button img').evaluateAll((images) => new Set(images.map((image) => image.src)).size), count, 'Previews must be distinct');
+      await picker.locator('button[data-value="' + value + '"]').click();
+      assert.equal(await editor.locator('#' + id).inputValue(), value);
+      assert.equal(await picker.getAttribute('open'), null);
+      assert.equal(await picker.locator('button[aria-pressed="true"]').getAttribute('data-value'), value);
+      assert.equal(await editor.evaluate(() => window.__editorReview.EDIT.tool), tool);
+    }
+    await chooseImage('eLamp', 'copper');
+    await chooseImage('eTree', 'pine');
+    await chooseImage('eTile', '1');
     const edits = await editor.evaluate(async () => {
       const t = window.__editorReview, m = t.MAP, obstacles = m.layers.find((l) => l.name === 'obstacles').data;
       if (!t.camera.isPerspectiveCamera) throw Error('Editor must use perspective');
-      if (document.querySelectorAll('#eTree option').length !== 10) throw Error('Missing main tree species');
+      if (document.querySelectorAll('#eTreePicker button').length !== 10) throw Error('Missing main tree species');
       let p;
       for (let z = 10; z < m.height - 10 && !p; z++) for (let x = 10; x < m.width - 10; x++) if (t.canPlace(x, z, 3, 3)) { p = { x, z }; break; }
       const i = p.z * m.width + p.x;
+      const water = () => t.world().root.getObjectByName('flowing-water');
+      const deck = () => t.world().root.getObjectByName('bridge-deck');
+      const ground = m.layers.find((l) => l.name === 'ground').data;
+      const wetTiles = ground.filter((tile) => tile === 5 || tile === 15).length;
+      if (water().geometry.index.count < wetTiles * 6) throw Error('Water must continue below every bridge tile');
+      t.world().update(2.5);
+      if (water().material.uniforms.uTime.value !== 2.5) throw Error('Water animation is not updated');
+      t.world().update(0);
+      const terrain = t.world().root.getObjectByName('park-terrain'), terrainPoints = terrain.geometry.attributes.position;
+      const terrainHeights = new Map();
+      for (let vertex = 0; vertex < terrainPoints.count; vertex++) terrainHeights.set((terrainPoints.getX(vertex) + m.width / 2) + ',' + (terrainPoints.getZ(vertex) + m.height / 2), terrainPoints.getY(vertex));
+      const railCenters = new Set();
+      t.world().root.traverse((mesh) => { if (mesh.name === 'bridge-rail') railCenters.add(mesh.position.x + ',' + mesh.position.z); });
+      for (let tile = 0; tile < ground.length; tile++) if (ground[tile] === 15) {
+        const x = tile % m.width, z = Math.floor(tile / m.width);
+        for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          if (![3,4,16].includes(ground[(z + dz) * m.width + x + dx])) continue;
+          if (railCenters.has((x + 0.5 + dx * 0.5) + ',' + (z + 0.5 + dz * 0.5))) throw Error('A bridge entrance rail narrows the road');
+          const cx = x + 0.5 + dx * 0.5, cz = z + 0.5 + dz * 0.5;
+          for (const offset of [-0.5, 0, 0.5]) {
+            const px = cx + (dz ? offset : 0), pz = cz + (dx ? offset : 0);
+            const actual = terrainHeights.get(px + ',' + pz);
+            if (!Number.isFinite(actual) || Math.abs(actual - t.heightAt(px, pz)) > 0.0001) throw Error('The full road entrance must meet the deck without a drop');
+          }
+        }
+      }
+      const timber = deck().geometry.attributes.position;
+      for (let plank = 0; plank < timber.count; plank += 36) for (let corner = plank; corner < plank + 6; corner++) {
+        if (Math.abs(timber.getY(corner) - t.heightAt(timber.getX(corner), timber.getZ(corner))) > 0.0001) throw Error('Bridge walking height must match the arched timber');
+      }
+      const oldDeck = timber.count;
+      t.setTool('tile'); document.getElementById('eTile').value = '15'; t.mark(); t.paint(p.x, p.z); t.rebuildAll();
+      if (deck().geometry.attributes.position.count !== oldDeck + 144 || water().material.uniforms.uMask.value.image.data[i * 4] !== 255 || obstacles[i] !== 0) throw Error('Painting a bridge must add timber over walkable water');
+      const restoredBridge = t.reloadWorld();
+      if (restoredBridge.root.getObjectByName('bridge-deck').geometry.attributes.position.count !== oldDeck + 144) throw Error('Bridge was lost on map reload');
+      restoredBridge.dispose(); t.undo();
       t.setTool('tree'); document.getElementById('eTree').value = 'bare3'; t.mark(); t.paint(p.x, p.z); t.rebuildAll();
       if (m.editor3d.trees[i] !== 'bare3' || obstacles[i] !== 7) throw Error('Birch placement failed');
       const response = await fetch('/__mapedit/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(m) });
@@ -64,7 +139,19 @@ async function signature(page, getWorld) {
       t.redo(); t.EDIT.sel = t.pick(p); t.moveSel(1, 0);
       if (obstacles[i] || m.editor3d.trees[i + 1] !== 'bare3') throw Error('Tree move failed');
       t.EDIT.key('delete', { preventDefault() {} });
-      t.setTool('bench'); t.install(p); t.turnBench(); t.EDIT.key('delete', { preventDefault() {} });
+      t.setTool('bench'); document.getElementById('eBenchFacing').value = 'down'; t.install(p);
+      for (const facing of ['down','right','up','left']) {
+        const seat = t.world().SEATS.find((s) => s.id === t.EDIT.sel.o.name);
+        if (seat.facing !== facing || Math.abs(Math.sin(seat.yaw) - ({down:0,right:1,up:0,left:-1}[facing])) > 0.001) throw Error('Bench rotation/facing mismatch');
+        t.turnBench();
+      }
+      t.EDIT.key('delete', { preventDefault() {} });
+      const tablesBefore = m.layers.find((l) => l.name === 'tables').objects.length;
+      t.setTool('table'); t.install(p);
+      if (m.layers.find((l) => l.name === 'tables').objects.length !== tablesBefore + 1) throw Error('Table installation failed');
+      t.turnBench(); if (t.EDIT.sel.o.width !== 32 || t.EDIT.sel.o.height !== 96) throw Error('Table rotation failed');
+      t.moveSel(1, 0); t.EDIT.key('delete', { preventDefault() {} });
+      t.undo(); if (m.layers.find((l) => l.name === 'tables').objects.length !== tablesBefore + 1) throw Error('Table undo failed'); t.redo();
       t.setTool('lamp'); t.install(p); t.EDIT.sel = t.pick(p); t.moveSel(1, 0); t.EDIT.key('delete', { preventDefault() {} });
       const height = t.heightAt(p.x + 0.5, p.z + 0.5);
       t.setTool('raise'); t.mark(); t.paint(p.x, p.z); t.rebuildAll();
@@ -97,12 +184,23 @@ async function signature(page, getWorld) {
     await clickTile(point.x + 0.5, point.z + 0.5);
     assert.equal(await editor.evaluate(() => window.__editorReview.EDIT.undo.length), history, 'Empty deletion must not add undo history');
     await editor.evaluate(() => { const t = window.__editorReview; t.undo(); t.redo(); });
-    for (const tool of ['bench', 'lamp']) {
-      const count = await editor.evaluate(({tool, point}) => { const t = window.__editorReview; t.setTool(tool); t.install(point); return tool === 'bench' ? t.MAP.layers.find(l => l.name === 'seats').objects.length : t.MAP.editor3d.lamps.length; }, {tool, point});
+    for (const tool of ['bench', 'lamp', 'table']) {
+      const count = await editor.evaluate(({tool, point}) => { const t = window.__editorReview; t.setTool(tool); t.install(point); return tool === 'lamp' ? t.MAP.editor3d.lamps.length : t.MAP.layers.find(l => l.name === (tool === 'bench' ? 'seats' : 'tables')).objects.length; }, {tool, point});
       await editor.locator('#eDelete').click();
-      await clickTile(point.x + (tool === 'bench' ? 1.5 : 0.5), point.z + 0.5);
-      assert.equal(await editor.evaluate((tool) => { const t = window.__editorReview; return tool === 'bench' ? t.MAP.layers.find(l => l.name === 'seats').objects.length : t.MAP.editor3d.lamps.length; }, tool), count - 1, tool + ' click deletion');
+      await clickTile(point.x + (tool === 'lamp' ? 0.5 : 1.5), point.z + 0.5);
+      assert.equal(await editor.evaluate((tool) => { const t = window.__editorReview; return tool === 'lamp' ? t.MAP.editor3d.lamps.length : t.MAP.layers.find(l => l.name === (tool === 'bench' ? 'seats' : 'tables')).objects.length; }, tool), count - 1, tool + ' click deletion');
     }
+    // Editing an installed lamp keeps its selection while changing its image choice.
+    await chooseImage('eLamp', 'triple');
+    await clickTile(point.x + 0.5, point.z + 0.5);
+    await editor.evaluate(() => window.__editorReview.setTool('move'));
+    await clickTile(point.x + 0.5, point.z + 0.5);
+    assert.equal(await editor.locator('#eLampPicker summary span').textContent(), '세 갈래 랜턴');
+    await chooseImage('eLamp', 'globe');
+    assert.equal(await editor.evaluate(() => window.__editorReview.EDIT.sel?.kind), 'lamp');
+    await editor.locator('#eLampApply').click();
+    assert.equal(await editor.evaluate(() => window.__editorReview.MAP.editor3d.lamps.at(-1).style), 'globe');
+    await editor.evaluate(() => { const t = window.__editorReview; t.undo(); t.undo(); });
     // Check installed size, editing existing trees, persistence and actual instance transforms.
     async function treeSize(point, reload = false) {
       return editor.evaluate(({point, reload}) => {
@@ -147,17 +245,17 @@ async function signature(page, getWorld) {
       if (t.MAP.editor3d.treeScales[i + 1] !== undefined) throw Error('Delete left size metadata');
     }, point);
     // Ground variants share base tile IDs but must retain distinct saved textures.
-    assert.equal(await editor.locator('#eTile option').count(), 25);
-    await editor.locator('#eTile').selectOption('grass-bare');
+    assert.equal(await editor.locator('#eTilePicker button').count(), 25);
+    await chooseImage('eTile', 'grass-bare');
     assert.equal(await editor.evaluate(() => window.__editorReview.EDIT.tool), 'tile');
     await clickTile(point.x + 0.5, point.z + 0.5);
     await editor.evaluate(() => window.__editorReview.rebuildAll());
     assert.equal(await editor.evaluate((p) => { const t = window.__editorReview; return t.MAP.editor3d.groundStyles[p.z*t.MAP.width+p.x]; },point),'grass-bare');
-    await editor.locator('#eTile').selectOption('grass-deep');
+    await chooseImage('eTile', 'grass-deep');
     await clickTile(point.x + 0.5, point.z + 0.5);
     assert.equal(await editor.evaluate((p) => { const t = window.__editorReview; return t.MAP.editor3d.groundStyles[p.z*t.MAP.width+p.x]; },point),'grass-deep');
     await editor.evaluate(() => {const t=window.__editorReview;t.undo();t.undo();});
-    await editor.locator('#eTile').selectOption('brick-brown');
+    await chooseImage('eTile', 'brick-brown');
     await clickTile(point.x + 0.5, point.z + 0.5);
     await editor.evaluate(() => window.__editorReview.rebuildAll());
     const groundCheck = await editor.evaluate(async (p) => {
@@ -170,8 +268,8 @@ async function signature(page, getWorld) {
       t.undo(); t.redo(); if(t.MAP.editor3d.groundStyles[i]!=='brick-brown')throw Error('Ground redo failed');t.undo();
       return {persistentGround:true};
     },point);
-    await editor.locator('#eTile').selectOption('5');await clickTile(point.x+.5,point.z+.5);
-    await editor.locator('#eTile').selectOption('shore-pebbles');await clickTile(point.x+.5,point.z+.5);
+    await chooseImage('eTile', '5');await clickTile(point.x+.5,point.z+.5);
+    await chooseImage('eTile', 'shore-pebbles');await clickTile(point.x+.5,point.z+.5);
     assert.equal(await editor.evaluate(p=>{const t=window.__editorReview;return t.MAP.layers.find(l=>l.name==='obstacles').data[p.z*t.MAP.width+p.x];},point),0,'Replacing ice with shore must clear collision');
     await editor.evaluate(()=>{const t=window.__editorReview;t.undo();t.undo();});
     assert.deepEqual(await signature(editor, 'window.__editorReview.world()'), original, 'Click deletion must clear both objects and collision tiles');

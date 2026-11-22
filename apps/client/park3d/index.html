@@ -46,9 +46,19 @@
   /* 지도 편집 모드 (?edit, 개발 서버에서만): 놀이 버튼은 숨기고 왼쪽에 도구 막대 */
   body.edit #px, body.edit #actions, body.edit #emotePal, body.edit #emoteBubble, body.edit #tag, body.edit #where, body.edit #dressBtn, body.edit #diceBtn, body.edit #helpBtn { display: none !important; }
   body.edit #badge { background: #c2453c; }
-  #edit { left: 12px; top: calc(env(safe-area-inset-top) + 104px); flex-direction: column; width: 174px; max-height: calc(100dvh - 200px); overflow-y: auto; }
+  #edit { left: 12px; top: calc(env(safe-area-inset-top) + 104px); flex-direction: column; width: 230px; max-width: calc(100vw - 48px); max-height: calc(100dvh - 200px); overflow-y: auto; }
   #edit button { text-align: left; padding: 7px 9px; }
-  #eTilePreview { display: block; margin: 6px auto; border: 1px solid #c7c4be; border-radius: 8px; }
+  #edit .ePicker { border: 1px solid #d4cfdf; border-radius: 8px; }
+  #edit .ePicker summary { display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; }
+  #edit .ePicker summary::after { content: "▾"; margin-left: auto; }
+  #edit .ePicker[open] summary::after { content: "▴"; }
+  #edit .ePicker img { flex: none; border-radius: 5px; }
+  #edit .ePicker span { min-width: 0; white-space: normal; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+  #edit .eChoices { max-height: 280px; overflow-y: auto; padding: 4px; border-top: 1px solid #d4cfdf; }
+  #edit .eChoices strong { display: block; font-size: 12px; padding: 8px 4px 4px; }
+  #edit .eChoices button { display: flex; align-items: center; gap: 8px; width: 100%; margin: 2px 0; border: 2px solid transparent; }
+  #edit .eChoices button[aria-pressed="true"] { border-color: var(--accent); background: #eee6fa; }
+  #edit .ePicker summary:focus-visible, #edit .eChoices button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   #edit select { max-width: 100%; }
   #edit input[type="range"] { width: 100%; }
   #edit button:disabled { opacity: .4; }
@@ -158,6 +168,7 @@ window.addEventListener("error", (e) => window.bootFail(/WebGL/i.test(e.message 
 <script src="/park3d/trees.js"></script>
 <script src="/park3d/ground.js"></script>
 <script src="/park3d/world.js"></script>
+<script src="/park3d/editor-pickers.js"></script>
 <script>
 (() => {
 "use strict";
@@ -427,7 +438,7 @@ function drawCat(c, action, frame) {
 
 // ───────── 상태 ─────────
 const spawn = layer("spawns").objects[0];
-const ZOOM_MIN = -2, ZOOM_MAX = 3; // 확대 단계: 시트 1픽셀 = 화면 (기본 + zoom) 픽셀. 정수라 도트가 흐려지지 않는다
+const ZOOM_MIN = EDIT.on ? -10 : -2, ZOOM_MAX = 3; // 편집기는 공원을 넓게 볼 수 있도록 축소 10단계까지 허용
 const state = { seat: null, sitT: 0, emote: null, emoteCd: 0, act: null, look: { ...DEFAULT_LOOK }, pos: new THREE.Vector3(spawn.x / 32, 0, spawn.y / 32), path: [], onArrive: null, moving: false, stuck: 0, idle: 0, walkT: 0, hands: [], cooking: null, eating: null, truck: null, menuOpen: false, px: 1.5, yaw: 0, zoom: 0 };
 try { const s = JSON.parse(localStorage.getItem("parkPixel3d") || "{}"); if (s.look && typeof s.look === "object") for (const k of Object.keys(DEFAULT_LOOK)) { const ok = OPTIONS[k].some((v) => (Array.isArray(v) ? v[0] : v) === s.look[k]); if (ok) state.look[k] = s.look[k]; } if (state.look.hair === "short") state.look.outfit = "coat"; if ([1, 1.5, 2].includes(s.px)) state.px = s.px; if (Number.isInteger(s.yaw)) state.yaw = ((s.yaw % 4) + 4) % 4; if (Number.isInteger(s.zoom)) state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, s.zoom)); } catch {}
 const save = () => { try { localStorage.setItem("parkPixel3d", JSON.stringify({ look: state.look, px: state.px, yaw: state.yaw, zoom: state.zoom })); } catch {} };
@@ -715,7 +726,7 @@ const SIT_RANGE = 0.75;
 const seatDist = (p, s) => Math.hypot(Math.max(s.box.l - p.x, 0, p.x - s.box.r), Math.max(s.box.t - p.z, 0, p.z - s.box.b));
 const nearestSlot = (s, p) => s.slots.reduce((bi, q, i) => (Math.hypot(q.x - p.x, q.z - p.z) < Math.hypot(s.slots[bi].x - p.x, s.slots[bi].z - p.z) ? i : bi), 0);
 function standPoint(s, i) {
-  const q = s.slots[i], b = s.box, front = s.side ? { x: b.r + 0.45, z: q.z } : { x: q.x, z: b.b + 0.45 }, back = s.side ? { x: b.l - 0.45, z: q.z } : { x: q.x, z: b.t - 0.45 };
+  const q = s.slots[i], b = s.box, toward = { down: { x: q.x, z: b.b + 0.45 }, up: { x: q.x, z: b.t - 0.45 }, left: { x: b.l - 0.45, z: q.z }, right: { x: b.r + 0.45, z: q.z } }, front = toward[s.facing], back = toward[{down:"up",up:"down",left:"right",right:"left"}[s.facing]];
   const ends = s.side ? [{ x: q.x, z: b.b + 0.45 }, { x: q.x, z: b.t - 0.45 }] : [{ x: b.l - 0.45, z: q.z }, { x: b.r + 0.45, z: q.z }];
   return [front, back, ...ends].find((p) => !blocked(Math.floor(p.x), Math.floor(p.z))) || front;
 }
@@ -723,7 +734,7 @@ const seatInRange = () => SEATS.map((s) => [s, seatDist(state.pos, s)]).filter((
 function sitOn(s, i = nearestSlot(s, state.pos)) {
   if (state.seat) standUp();
   closeMenu(); state.path = []; state.onArrive = null; state.seat = { seat: s, slot: i, at: { ...state.pos } };
-  const q = s.slots[i]; state.pos.set(q.x, 0, q.z); player.facing = "down"; state.sitT = 0;
+  const q = s.slots[i]; state.pos.set(q.x, 0, q.z); player.facing = s.facing; state.sitT = 0;
 }
 function standUp() {
   if (!state.seat) return; const p = standPoint(state.seat.seat, state.seat.slot); state.seat = null; state.pos.set(p.x, 0, p.z); player.facing = "down";
@@ -766,9 +777,10 @@ function actOffset() {
 // ───────── 렌더링: 배경(저해상도) + 도트 시트(화면 해상도) 깊이 합성 ─────────
 const camera = EDIT.on ? new THREE.PerspectiveCamera(30, 1, 0.3, 220) : new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 60), charCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 60);
 const CAM_DIR = new THREE.Vector3(), CAM_PITCH = 0.62;
+let editorPitch = 55;
 // 시점: 카메라가 땅을 바라보는 방위각. 기본 45°에서 90°씩 돌린다. 화면 기준 방향(앞·오른쪽)도 같이 돈다
 let camYaw = state.yaw * Math.PI / 2;
-function applyYaw(a) { const az = Math.PI / 4 + a; CAM_DIR.set(Math.cos(CAM_PITCH) * Math.sin(az), Math.sin(CAM_PITCH), Math.cos(CAM_PITCH) * Math.cos(az)); TOWARD_CAM.set(Math.sin(az), Math.cos(az)); SCREEN_RIGHT.set(Math.cos(az), -Math.sin(az)); }
+function applyYaw(a) { const az = Math.PI / 4 + a, pitch = EDIT.on ? editorPitch * Math.PI / 180 : CAM_PITCH; CAM_DIR.set(Math.cos(pitch) * Math.sin(az), Math.sin(pitch), Math.cos(pitch) * Math.cos(az)); TOWARD_CAM.set(Math.sin(az), Math.cos(az)); SCREEN_RIGHT.set(Math.cos(az), -Math.sin(az)); }
 applyYaw(camYaw);
 // 시점을 90° 돌리면 같은 월드 방향이 화면에서 90° 돈다 (facingOf 의 8방향 고리에서 두 칸)
 const FACING_RING = ["right", "down-right", "down", "down-left", "left", "up-left", "up", "up-right"];
@@ -1017,6 +1029,7 @@ function frame() {
   updateSteer(); drawDressPreview(dt); updateEmote(dt); updatePlayer(dt); updateCooking(dt); updateEating(dt); updateCat(dt); updateUI();
   if (EDIT.on) EDIT.update(dt);
   for (const p of puffs) { if (!p.alive) continue; p.t += dt; const k = p.t / p.life; if (k >= 1) { p.alive = false; p.m.visible = false; continue; } p.m.position.x += p.dx * dt; p.m.position.y += p.rise * dt; p.m.scale.setScalar(p.size * (0.6 + k)); p.m.material.opacity = p.op * (1 - k); }
+  world.update(now);
   snow.uTime.value = now; snow.uCenter.value.copy(camTarget);
   updateCamera(dt);
   if (EDIT.on) { renderer.setRenderTarget(null); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
@@ -1033,33 +1046,32 @@ function frame() {
 if (EDIT.on) {
   document.body.classList.add("edit");
   $("badge").textContent = "지도 편집 · 메인 3D";
-  const TOOLS = [["tree", "🌲 나무", G.tree], ["rock", "🪨 바위", G.rock], ["hedge", "🌿 생울타리", G.garden], ["fence", "🪵 울타리", G.fence], ["erase", "🧽 삭제", 0], ["move", "✋ 선택·이동", null], ["tile", "▦ 바닥 타일", null], ["bench", "🪑 벤치 설치", null], ["lamp", "💡 가로등 설치", null], ["truck", "🚚 트럭 배치", null], ["raise", "⛰ 높이 올리기", null], ["lower", "⬇ 높이 내리기", null]];
+  const TOOLS = [["tree", "🌲 나무", G.tree], ["rock", "🪨 바위", G.rock], ["hedge", "🌿 생울타리", G.garden], ["fence", "🪵 울타리", G.fence], ["erase", "🧽 삭제", 0], ["move", "✋ 선택·이동", null], ["tile", "▦ 바닥 타일", null], ["bench", "🪑 벤치 설치", null], ["table", "🧺 식탁 설치", null], ["lamp", "💡 가로등 설치", null], ["truck", "🚚 트럭 배치", null], ["raise", "⛰ 높이 올리기", null], ["lower", "⬇ 높이 내리기", null]];
   const DECOR = new Set([G.tree, G.rock, G.garden, G.fence]); // 칠하고 지울 수 있는 칸. 얼음·벤치·트럭·공원 밖 벽은 건드리지 않는다
-  // 3D 벤치는 늘 카메라 쪽(아래 +z · 오른쪽 +x)을 보므로 돌리기는 아래 ↔ 오른쪽만. 위·왼쪽(예전 지도)은 같은 모양으로 그려진다.
-  // 지도 방향이 3D 와 다르면 서버가 그 방향 앞(= 3D 에서는 벤치 뒤)에 일으켜 세운다
-  const BENCH_TILE = { down: G.benchDown, up: G.benchUp, left: G.benchLeft, right: G.benchLeft }, BENCH_TURN = { down: "right", right: "down", up: "right", left: "down" };
+  const BENCH_TILE = { down: G.benchDown, up: G.benchUp, left: G.benchLeft, right: G.benchLeft }, BENCH_TURN = { down: "right", right: "up", up: "left", left: "down" };
   const benchSide = (f) => f === "left" || f === "right";
-  const TILE_NAME = { 0: "빈 땅", [G.tree]: "나무", [G.rock]: "바위", [G.garden]: "생울타리", [G.fence]: "울타리", [G.ice]: "얼음", [G.wall]: "트럭·공원 밖", [G.benchDown]: "벤치", [G.benchUp]: "벤치", [G.benchLeft]: "벤치" };
+  const TILE_NAME = { 0: "빈 땅", [G.tree]: "나무", [G.rock]: "바위", [G.garden]: "생울타리", [G.fence]: "울타리", [G.ice]: "강물", [G.wall]: "트럭·공원 밖", [G.benchDown]: "벤치", [G.benchUp]: "벤치", [G.benchLeft]: "벤치" };
   MAP.editor3d ||= { trees: {}, lamps: [], heights: {} };
   MAP.editor3d.treeScales ||= {};
   const details = () => MAP.editor3d;
-  const OBJ_LAYERS = ["seats", "trucks", "landmarks", "spawns", "animals"];
+  if (!layer("tables")) { const id = MAP.nextlayerid || Math.max(...MAP.layers.map((l) => l.id || 0)) + 1; MAP.layers.push({ id, name: "tables", type: "objectgroup", objects: [], visible: true, opacity: 1, x: 0, y: 0 }); MAP.nextlayerid = id + 1; }
+  const OBJ_LAYERS = ["seats", "trucks", "tables", "landmarks", "spawns", "animals"];
   Object.assign(EDIT, { tool: "tree", brush: 1, grid: true, dirty: false, undo: [], redo: [], sel: null, needBuild: false, lastBuild: 0, focus: new THREE.Vector3(state.pos.x, 0.4, state.pos.z) });
 
   // 도구 막대
   const bar = document.createElement("div"); bar.className = "bar"; bar.id = "edit";
-  bar.innerHTML = TOOLS.map(([id, label], i) => `<button data-tool="${id}" title="${i + 1}">${label}</button>`).join("") +
-    '<hr><label>나무 종류<select id="eTree"></select></label><label>나무 크기 <output id="eTreeSizeLabel">100%</output><input id="eTreeSize" type="range" min="50" max="200" step="10" value="100" aria-label="나무 크기"></label><button id="eTreeSizeApply" disabled>선택 나무 크기 적용</button><label>바닥 종류<select id="eTile"></select><canvas id="eTilePreview" width="128" height="128" aria-label="선택한 바닥 타일 미리보기"></canvas></label><label>가로등 종류<select id="eLamp"></select></label><button id="eLampApply">선택 가로등에 적용</button><button id="eDelete" title="삭제할 타일을 클릭하세요">🧽 삭제 모드</button><hr><button id="eBrush" title="B">붓 1칸</button><button id="eTurn" title="R" disabled>↻ 벤치 돌리기</button><button id="eGrid" title="G">▦ 막힌 칸</button>' +
+  bar.innerHTML = '<label>시점 높이 <output id="ePitchLabel">55°</output><input id="ePitch" type="range" min="35" max="85" step="5" value="55" aria-label="시점 높이"></label><hr>' + TOOLS.map(([id, label], i) => `<button data-tool="${id}" title="${i + 1}">${label}</button>`).join("") +
+    '<hr><label>나무 종류<input id="eTree" type="hidden" value="pine"></label><label>나무 크기 <output id="eTreeSizeLabel">100%</output><input id="eTreeSize" type="range" min="50" max="200" step="1" value="100" aria-label="나무 크기"></label><button id="eTreeSizeApply" disabled>선택 나무 크기 적용</button><label>바닥 종류<input id="eTile" type="hidden" value="1"></label><label>벤치 방향<select id="eBenchFacing"><option value="down">↓ 아래 보기</option><option value="right">→ 오른쪽 보기</option><option value="up">↑ 위 보기</option><option value="left">← 왼쪽 보기</option></select></label><label>가로등 종류<input id="eLamp" type="hidden" value="copper"></label><button id="eLampApply">선택 가로등에 적용</button><button id="eDelete" title="삭제할 타일을 클릭하세요">🧽 삭제 모드</button><hr><button id="eBrush" title="B">붓 1칸</button><button id="eTurn" title="R" disabled>↻ 벤치·식탁 돌리기</button><button id="eGrid" title="G">▦ 막힌 칸</button>' +
     '<hr><button id="eUndo" title="Ctrl+Z" disabled>↶ 되돌리기</button><button id="eRedo" title="Ctrl+Shift+Z" disabled>↷ 다시</button><button id="eCheck">🔎 점검</button><button id="eSave" class="save clean" title="Ctrl+S">💾 저장</button>';
   document.body.append(bar);
-  $("eTree").innerHTML = window.ParkWorld.trees.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
-  for (const group of [...new Set(window.ParkGround.styles.map((s) => s.group))]) {
-    const options = document.createElement("optgroup"); options.label = group;
-    for (const style of window.ParkGround.styles.filter((s) => s.group === group)) { const option = document.createElement("option"); option.value = style.id; option.textContent = style.name; options.append(option); }
-    $("eTile").append(options);
-  }
-  $("eTile").onchange = () => { window.ParkGround.preview($("eTilePreview"), $("eTile").value); setTool("tile"); };
-  window.ParkGround.preview($("eTilePreview"), $("eTile").value);
+  $("ePitch").oninput = () => {
+    editorPitch = Math.max(35, Math.min(85, Number($("ePitch").value)));
+    $("ePitchLabel").textContent = `${editorPitch}°`;
+    applyYaw(camYaw); updateCamera(0);
+  };
+  $("ePitch").addEventListener("keydown", (event) => event.stopPropagation());
+  updateCamera(0);
+  $("eTile").onchange = () => { setTool("tile"); };
   const treeScale = () => Number($("eTreeSize").value) / 100;
   const showTreeScale = (scale) => { $("eTreeSize").value = Math.round(scale * 100); $("eTreeSizeLabel").textContent = `${$("eTreeSize").value}%`; };
   $("eTreeSize").oninput = () => showTreeScale(treeScale());
@@ -1068,8 +1080,8 @@ if (EDIT.on) {
     const i = sel.o.y / 32 * MW + sel.o.x / 32; if (OBST[i] !== G.tree || (details().treeScales?.[i] ?? 1) === treeScale()) return;
     mark(); (details().treeScales ||= {})[i] = treeScale(); rebuildAll();
   };
-  $("eLamp").innerHTML = window.ParkLamps.styles.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
-  $("eLamp").value = "copper";
+  $("eBenchFacing").onchange = () => { if (EDIT.sel?.kind === "seat") { turnBench($("eBenchFacing").value); $("eBenchFacing").value = seatFacing(EDIT.sel.o); } else setTool("bench"); };
+  $("eLamp").onchange = () => { if (EDIT.sel?.kind !== "lamp") setTool("lamp"); };
   $("eLampApply").onclick = () => { if (EDIT.sel?.kind !== "lamp") return toast("선택·이동 도구로 가로등을 먼저 선택해 주세요", 2200); if ((EDIT.sel.o.style || "basic") === $("eLamp").value) return; mark(); EDIT.sel.o.style = $("eLamp").value; rebuildAll(); };
   const truckSelect = document.createElement("select"); truckSelect.id = "eTruck";
   for (const o of layer("trucks").objects) { const option = document.createElement("option"); option.value = o.name; option.textContent = TRUCK_DEF.get(o.name)?.name.ko || o.name; truckSelect.append(option); }
@@ -1137,39 +1149,47 @@ if (EDIT.on) {
   const blockId = (sel) => (sel.kind === "seat" ? BENCH_TILE[seatFacing(sel.o)] : G.wall);
   const fillRect = (o, id, from, to) => { const r = rectOf(o); let clash = 0; for (let y = r.t; y < r.t + r.h; y++) for (let x = r.l; x < r.l + r.w; x++) { const i = y * MW + x; if (OBST[i] === from) OBST[i] = to; else if (to) clash++; } return clash; };
   function pick(p) {
-    for (const [kind, n] of [["seat", "seats"], ["truck", "trucks"]]) for (const o of layer(n).objects) { const r = rectOf(o); if (p.x >= r.l && p.x < r.l + r.w && p.z >= r.t && p.z < r.t + r.h) return { kind, o }; }
+    for (const [kind, n] of [["seat", "seats"], ["truck", "trucks"], ["table", "tables"]]) for (const o of layer(n).objects) { const r = rectOf(o); if (p.x >= r.l && p.x < r.l + r.w && p.z >= r.t && p.z < r.t + r.h) return { kind, o }; }
     for (const [kind, n] of [["spawn", "spawns"], ["animal", "animals"], ["landmark", "landmarks"]]) for (const o of layer(n).objects) if (Math.hypot(o.x / 32 - p.x, o.y / 32 - p.z) < 1) return { kind, o };
     const lamp = details().lamps.find((o) => Math.floor(o.x / 32) === p.x && Math.floor(o.y / 32) === p.z);
     if (lamp) return { kind: "lamp", o: lamp };
     if (DECOR.has(OBST[p.z * MW + p.x])) return { kind: "decor", o: { x: p.x * 32, y: p.z * 32 } };
     return null; }
-  const KIND_NAME = { decor: "장식", lamp: "가로등", seat: "벤치", truck: "트럭", spawn: "시작 위치", animal: "고양이 집", landmark: "랜드마크" };
+  const KIND_NAME = { decor: "장식", lamp: "가로등", seat: "벤치", table: "식탁", truck: "트럭", spawn: "시작 위치", animal: "고양이 집", landmark: "랜드마크" };
   const selName = (sel) => `${KIND_NAME[sel.kind]} ${sel.kind === "truck" ? TRUCK_DEF.get(sel.o.name)?.name.ko || sel.o.name : prop(sel.o, "label") || sel.o.name || ""}`;
-  function showSel(dx = 0, dz = 0) { const sel = EDIT.sel; $("eTreeSizeApply").disabled = sel?.kind !== "decor" || OBST[sel.o.y / 32 * MW + sel.o.x / 32] !== G.tree; $("eTurn").disabled = sel?.kind !== "seat"; if (!sel) { selBox.visible = false; return; }
-    const isRect = sel.kind === "seat" || sel.kind === "truck", r = isRect ? rectOf(sel.o) : { l: Math.floor(sel.o.x / 32), t: Math.floor(sel.o.y / 32), w: 1, h: 1 };
+  function showSel(dx = 0, dz = 0) { const sel = EDIT.sel; $("eTreeSizeApply").disabled = sel?.kind !== "decor" || OBST[sel.o.y / 32 * MW + sel.o.x / 32] !== G.tree; $("eTurn").disabled = !["seat", "table"].includes(sel?.kind); if (!sel) { selBox.visible = false; return; }
+    const isRect = ["seat", "truck", "table"].includes(sel.kind), r = isRect ? rectOf(sel.o) : { l: Math.floor(sel.o.x / 32), t: Math.floor(sel.o.y / 32), w: 1, h: 1 };
     const cx = r.l + dx + r.w / 2, cz = r.t + dz + r.h / 2; selBox.scale.set(r.w, 1, r.h); selBox.position.set(cx, heightAt(cx, cz) + 0.08, cz); selBox.visible = true; }
   function moveSel(dx, dz) { const sel = EDIT.sel; if (!dx && !dz) return;
     const nx = Math.floor(sel.o.x / 32) + dx, nz = Math.floor(sel.o.y / 32) + dz;
-    const rr = sel.kind === "seat" || sel.kind === "truck" ? rectOf(sel.o) : { w: 1, h: 1 };
+    const rr = ["seat", "truck", "table"].includes(sel.kind) ? rectOf(sel.o) : { w: 1, h: 1 };
     if (!canPlace(nx, nz, rr.w, rr.h, sel)) return toast("다른 물건과 겹치거나 지도 밖이에요", 2000);
     mark();
     if (sel.kind === "decor") { const old = sel.o.y / 32 * MW + sel.o.x / 32, next = nz * MW + nx; OBST[next] = OBST[old]; OBST[old] = 0; if (details().trees[old]) details().trees[next] = details().trees[old]; delete details().trees[old]; if (details().treeScales?.[old] !== undefined) { details().treeScales[next] = details().treeScales[old]; delete details().treeScales[old]; } }
      const o = sel.o;
-    if (sel.kind === "seat" || sel.kind === "truck") { const id = blockId(sel), r = rectOf(o); dx = Math.max(1 - r.l, Math.min(MW - 1 - r.l - r.w, dx)); dz = Math.max(1 - r.t, Math.min(MH - 1 - r.t - r.h, dz));
+    if (["seat", "truck", "table"].includes(sel.kind)) { const id = blockId(sel), r = rectOf(o); dx = Math.max(1 - r.l, Math.min(MW - 1 - r.l - r.w, dx)); dz = Math.max(1 - r.t, Math.min(MH - 1 - r.t - r.h, dz));
       fillRect(o, id, id, 0); o.x += dx * 32; o.y += dz * 32; const clash = fillRect(o, id, 0, id); if (clash) toast(`${selName(sel)}이(가) 다른 장애물 ${clash}칸과 겹쳐요`, 2600); }
     else { o.x += dx * 32; o.y += dz * 32; if (sel.kind === "landmark") for (const k of ["accessX", "accessY"]) { const q = o.properties.find((p) => p.name === k); if (q) q.value += (k === "accessX" ? dx : dz) * 32; } }
     rebuildAll(); }
-  function turnBench() { const sel = EDIT.sel; if (sel?.kind !== "seat") return; const o = sel.o, f0 = seatFacing(o), f1 = BENCH_TURN[f0];
+  function turnBench(facing) {
+    const sel = EDIT.sel; if (!["seat", "table"].includes(sel?.kind)) return;
+    if (sel.kind === "table") {
+      const o = sel.o, r = rectOf(o);
+      if (!canPlace(r.l, r.t, r.h, r.w, sel)) return toast("식탁을 돌릴 공간이 없어요", 2000);
+      mark(); fillRect(o, G.wall, G.wall, 0); [o.width, o.height] = [o.height, o.width]; fillRect(o, G.wall, 0, G.wall); rebuildAll(); return;
+    }
+    const o = sel.o, f0 = seatFacing(o), f1 = typeof facing === "string" ? facing : BENCH_TURN[f0];
+    if (f0 === f1) return;
     const r = rectOf(o), swap = benchSide(f0) !== benchSide(f1);
     if (!canPlace(r.l, r.t, swap ? r.h : r.w, swap ? r.w : r.h, sel)) return toast("벤치를 돌릴 공간이 없어요", 2000);
     mark();
     fillRect(o, BENCH_TILE[f0], BENCH_TILE[f0], 0);
     if (swap) { const w = o.width; o.width = o.height; o.height = w; }
-    o.properties.find((p) => p.name === "facing").value = f1;
+    o.properties.find((p) => p.name === "facing").value = f1; $("eBenchFacing").value = f1;
     const clash = fillRect(o, BENCH_TILE[f1], 0, BENCH_TILE[f1]); if (clash) toast(`벤치가 다른 장애물 ${clash}칸과 겹쳐요`, 2600); rebuildAll(); }
 
   function canPlace(x, z, w, h, own = null) {
-    const r = own && (own.kind === "seat" || own.kind === "truck") ? rectOf(own.o) : null;
+    const r = own && (["seat", "truck", "table"].includes(own.kind)) ? rectOf(own.o) : null;
     for (let y = z; y < z + h; y++) for (let xx = x; xx < x + w; xx++) {
       if (xx <= 0 || y <= 0 || xx >= MW - 1 || y >= MH - 1) return false;
       if (r && xx >= r.l && xx < r.l + r.w && y >= r.t && y < r.t + r.h) continue;
@@ -1178,21 +1198,22 @@ if (EDIT.on) {
     return true;
   }
   function install(p) {
-    const bench = EDIT.tool === "bench", w = bench ? 2 : 1;
-    if (!canPlace(p.x, p.z, w, 1)) return toast("빈 땅에 설치해 주세요", 1800);
+    const bench = EDIT.tool === "bench", table = EDIT.tool === "table", facing = $("eBenchFacing").value;
+    const side = bench && benchSide(facing), w = table ? 3 : bench ? (side ? 1 : 2) : 1, h = side ? 2 : 1;
+    if (!canPlace(p.x, p.z, w, h)) return toast("빈 땅에 설치해 주세요", 1800);
     mark();
-    if (bench) {
+    if (bench || table) {
       const id = Math.max(MAP.nextobjectid || 1, ...MAP.layers.flatMap((l) => (l.objects || []).map((o) => (o.id || 0) + 1)));
       MAP.nextobjectid = id + 1;
-      const o = { id, name: "bench-" + id, type: "", x: p.x * 32, y: p.z * 32, width: 64, height: 32, rotation: 0, visible: true, properties: [{ name: "kind", type: "string", value: "bench" }, { name: "facing", type: "string", value: "down" }, { name: "slots", type: "int", value: 2 }] };
-      layer("seats").objects.push(o); fillRect(o, G.benchDown, 0, G.benchDown); EDIT.sel = { kind: "seat", o };
+      const o = { id, name: (table ? "table-" : "bench-") + id, type: table ? "picnic-table" : "seat", x: p.x * 32, y: p.z * 32, width: w * 32, height: h * 32, rotation: 0, visible: true, properties: table ? [] : [{ name: "kind", type: "string", value: "bench" }, { name: "facing", type: "string", value: facing }, { name: "slots", type: "int", value: 2 }] };
+      layer(table ? "tables" : "seats").objects.push(o); const block = table ? G.wall : BENCH_TILE[facing]; fillRect(o, block, 0, block); EDIT.sel = { kind: table ? "table" : "seat", o };
     } else { const o = { x: p.x * 32, y: p.z * 32, style: $("eLamp").value }; details().lamps.push(o); EDIT.sel = { kind: "lamp", o }; }
     rebuildAll();
   }
   function deleteObject(sel) {
-    if (!sel || !["seat", "lamp", "decor"].includes(sel.kind)) return false;
+    if (!sel || !["seat", "table", "lamp", "decor"].includes(sel.kind)) return false;
     mark();
-    if (sel.kind === "seat") { fillRect(sel.o, blockId(sel), blockId(sel), 0); layer("seats").objects = layer("seats").objects.filter((o) => o !== sel.o); }
+    if (["seat", "table"].includes(sel.kind)) { fillRect(sel.o, blockId(sel), blockId(sel), 0); const objects = layer(sel.kind === "table" ? "tables" : "seats"); objects.objects = objects.objects.filter((o) => o !== sel.o); }
     else if (sel.kind === "lamp") details().lamps = details().lamps.filter((o) => o !== sel.o);
     else { const i = sel.o.y / 32 * MW + sel.o.x / 32; OBST[i] = 0; delete details().trees[i]; if (details().treeScales) delete details().treeScales[i]; }
     EDIT.sel = null; rebuildAll();
@@ -1202,8 +1223,9 @@ if (EDIT.on) {
     if (p.x <= 0 || p.z <= 0 || p.x >= MW - 1 || p.z >= MH - 1) return;
     // Markers do not hide decorations in the same tile. A bench is removed as one object.
     const seat = layer("seats").objects.find((o) => { const r = rectOf(o); return p.x >= r.l && p.x < r.l + r.w && p.z >= r.t && p.z < r.t + r.h; });
+    const table = layer("tables").objects.find((o) => { const r = rectOf(o); return p.x >= r.l && p.x < r.l + r.w && p.z >= r.t && p.z < r.t + r.h; });
     const lamp = details().lamps.find((o) => Math.floor(o.x / 32) === p.x && Math.floor(o.y / 32) === p.z);
-    const sel = seat ? { kind: "seat", o: seat } : lamp ? { kind: "lamp", o: lamp } : DECOR.has(OBST[p.z * MW + p.x]) ? { kind: "decor", o: { x: p.x * 32, y: p.z * 32 } } : null;
+    const sel = table ? { kind: "table", o: table } : seat ? { kind: "seat", o: seat } : lamp ? { kind: "lamp", o: lamp } : DECOR.has(OBST[p.z * MW + p.x]) ? { kind: "decor", o: { x: p.x * 32, y: p.z * 32 } } : null;
     if (!deleteObject(sel)) toast("이 칸에는 삭제할 나무나 소품이 없어요", 1600);
   }
 
@@ -1240,9 +1262,9 @@ if (EDIT.on) {
     if (e.button === 1 || e.button === 2) { drag = { pan: true, at: new THREE.Vector3(p.fx, 0, p.fz) }; return; }
     if (e.button !== 0) return;
     if (EDIT.tool === "erase") { deleteAt(p); return; }
-    if (EDIT.tool === "move") { EDIT.sel = pick(p); showSel(); drag = EDIT.sel && { move: true, from: p, dx: 0, dz: 0 }; if (EDIT.sel?.kind === "decor" && OBST[p.z * MW + p.x] === G.tree) showTreeScale(details().treeScales?.[p.z * MW + p.x] ?? 1); if (EDIT.sel?.kind === "lamp") $("eLamp").value = EDIT.sel.o.style || "basic"; if (EDIT.sel) info.textContent = selName(EDIT.sel); return; }
+    if (EDIT.tool === "move") { EDIT.sel = pick(p); showSel(); drag = EDIT.sel && { move: true, from: p, dx: 0, dz: 0 }; if (EDIT.sel?.kind === "decor" && OBST[p.z * MW + p.x] === G.tree) showTreeScale(details().treeScales?.[p.z * MW + p.x] ?? 1); if (EDIT.sel?.kind === "seat") $("eBenchFacing").value = seatFacing(EDIT.sel.o); if (EDIT.sel?.kind === "lamp") { $("eLamp").value = EDIT.sel.o.style || "basic"; $("eLamp").dispatchEvent(new Event("change")); } if (EDIT.sel) info.textContent = selName(EDIT.sel); return; }
     if (EDIT.tool === "truck") { const o = layer("trucks").objects.find((o) => o.name === $("eTruck").value); EDIT.sel = { kind: "truck", o }; moveSel(p.x - o.x / 32, p.z - o.y / 32); return; }
-    if (EDIT.tool === "bench" || EDIT.tool === "lamp") { install(p); return; }
+    if (EDIT.tool === "bench" || EDIT.tool === "lamp" || EDIT.tool === "table") { install(p); return; }
     const was = EDIT.dirty; mark(); drag = { paint: true, last: p, was }; paint(p.x, p.z); }, true);
   canvas.addEventListener("pointermove", (e) => { e.stopImmediatePropagation(); const p = tileAt(e); if (!p) { hover.visible = false; return; }
     if (drag?.pan) { EDIT.focus.x += drag.at.x - p.fx; EDIT.focus.z += drag.at.z - p.fz; return; }
@@ -1261,6 +1283,7 @@ if (EDIT.on) {
     EDIT.focus.x = Math.max(0, Math.min(MW, EDIT.focus.x)); EDIT.focus.z = Math.max(0, Math.min(MH, EDIT.focus.z)); EDIT.focus.y = heightAt(EDIT.focus.x, EDIT.focus.z) + 0.4;
     const now = performance.now(); if (EDIT.needBuild && (!drag?.paint || now - EDIT.lastBuild > 150)) { rebuildAll(); EDIT.needBuild = false; EDIT.lastBuild = now; } };
 
+  window.ParkEditorPickers.install(THREE, setTool);
   setTool("tree"); $("eGrid").classList.add("on"); drawGrid(); drawMarkers(); setDirty(false);
 }
 loadImages().then(() => { requestAnimationFrame(frame);

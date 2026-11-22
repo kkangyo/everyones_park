@@ -398,8 +398,9 @@ const DOLL_KINDS = {
   // 앉기는 엉덩이가 거의 바닥까지 내려가 여자 인형 엉덩이 높이만큼 올리고, 몸이 둥글어 등받이에 묻히지 않게 앞으로 민다
   penguin: { file: "/models/meshy-penguin.glb", head: 1, scale: 1, wide: 1, h: 0.8, waveFix: false, sit: { down: -0.19, fwd: 0.1 } },
   // 알파카(scripts/fix-alpaca-rig.py → scripts/meshy-alpaca.py): 키 1.7 로 만들어져 여자 인형 키로 줄인다. 뼈 단위가 m (boneUnit, 다른 인형은 cm).
-  // 동작은 idle · walk · sit 뿐이라 안녕은 팔 뼈를 돌려 흔든다
-  alpaca: { file: "/models/meshy-alpaca.glb", head: 1, scale: 1 / 1.7, wide: 1, h: 1.7, boneUnit: 1, sit: { down: -0.3, fwd: -0.28 } },
+  // 동작은 idle · walk · sit 뿐이라 안녕은 팔 뼈를 돌려 흔든다.
+  // 앉기는 좌판 높이에 맞춰 6cm 올리고, 모델의 뒤로 치우친 골반을 4cm 앞으로 맞춘다.
+  alpaca: { file: "/models/meshy-alpaca.glb", head: 1, scale: 1 / 1.7, wide: 1, h: 1.7, boneUnit: 1, sit: { down: -0.06, fwd: 0.04 } },
 };
 const dollKind = (l) => (l.hair === "short" ? "boy" : l.hair === "curly" ? "curly" : l.hair === "roller" ? "roller" : l.hair === "penguin" ? "penguin" : l.hair === "alpaca" ? "alpaca" : "girl");
 // 앉기 동작은 엉덩이를 6cm 내리고 19cm 뒤로 뺀다(키 1 기준). 예전 인형의 엉덩이 자리(벤치 + 0.46)에 맞게 인형을 내리고 앞으로 민다
@@ -596,11 +597,12 @@ const ease = (a, b, k) => a + (b - a) * Math.min(1, k);
 function posePerson(c, dt, now) {
   const m = c.model, seat = c.seat;
   let yaw = yawOf(c.facing), y = c.pos.y;
-  if (seat) { yaw = seat.side ? Math.PI / 2 : 0; y = seat.group.position.y + 0.16; }
+  if (seat) { yaw = seat.yaw; y = seat.group.position.y + 0.16; }
   c.yaw = turn(c.yaw, yaw, dt * 14);
   // jump 동작이 있는 인형은 동작이 직접 뛰므로 몸 전체를 튀기지 않는다
   const [ox, oy] = c.act?.kind === "jump" && m.doll?.act.jump ? [0, 0] : actOffset(c.act, !!seat), hopY = c.hop > 0 ? Math.sin((1 - c.hop / 0.45) * Math.PI) * 0.22 : 0;
-  m.root.position.set(c.pos.x, y + hopY + oy * ART, c.pos.z).addScaledVector(camRight, ox * ART * 1.5); m.root.rotation.y = c.yaw;
+  const seatedAt = seat?.slots.reduce((best, slot) => Math.hypot(slot.x - c.pos.x, slot.z - c.pos.z) < Math.hypot(best.x - c.pos.x, best.z - c.pos.z) ? slot : best);
+  m.root.position.set(seatedAt?.x ?? c.pos.x, y + hopY + oy * ART, seatedAt?.z ?? c.pos.z).addScaledVector(camRight, ox * ART * 1.5); m.root.rotation.y = c.yaw;
   if (m.doll) return poseDoll(c, m, dt, now, seat);
   const ph = c.walkT * Math.PI * 4, w = c.moving ? Math.sin(ph) : 0, k = dt * 14;
   for (const [i, g] of m.legs.entries()) g.rotation.x = ease(g.rotation.x, seat ? -1.45 : (i ? -w : w) * 0.6, k);
@@ -1567,6 +1569,7 @@ function frame() {
 }
 /** 한 프레임의 게임 진행 (그리기 전까지) */
 function update(dt, now, nowMs) {
+  world.update(now);
   // 고정 틱: 서버와 같은 간격으로 입력을 읽고, 예측 이동하고, 서버로 보낸다 (탭이 멈췄다 돌아와도 한 번에 5틱까지만)
   tickAcc = Math.min(tickAcc + dt * 1000, TICK_MS * 5);
   while (tickAcc >= TICK_MS) { tickAcc -= TICK_MS; fixedTick(); }

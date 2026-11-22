@@ -32,7 +32,8 @@
     "check:character": "tsx scripts/check-character-sheet.ts",
     "preview:character": "tsx scripts/preview-character-sheet.ts",
     "check:hands": "tsx scripts/check-hand-rig.ts && tsx scripts/check-character-detail.ts",
-    "check:character-detail": "tsx scripts/check-character-detail.ts"
+    "check:character-detail": "tsx scripts/check-character-detail.ts",
+    "check:seats": "tsx scripts/check-park-seats.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

@@ -71,14 +71,14 @@ export function seatsFromTiled(map: TiledSeatMapLike, layerName: string): Seat[]
 
 /**
  * 칸마다 앉은 발밑 위치. 위·아래를 보는 자리는 가로로, 옆을 보는 자리는 세로로 나란히 앉는다.
- * 앉은 그림은 몸이 아래로 내려가 있어서(sitDrop) 발밑이 자리 아랫변보다 조금 위에 오게 한다.
+ * 3D 벤치의 중앙에서 보는 방향으로 0.08칸 이동한다. 서버·3D 화면이 같은 자리에 앉힌다.
  */
 function slotPositions(box: Box, facing: StraightFacing, count: number): Vec2[] {
   const w = box.right - box.left;
   const h = box.bottom - box.top;
   return Array.from({ length: count }, (_, i) => {
-    if (facing === "down" || facing === "up") return { x: box.left + ((i + 0.5) * w) / count, y: box.bottom - (facing === "down" ? 7 : 9) };
-    return { x: (box.left + box.right) / 2 + (facing === "left" ? -1 : 1), y: box.top + ((i + 1) * h) / count - 6 };
+    if (facing === "down" || facing === "up") return { x: box.left + ((i + 0.5) * w) / count, y: (box.top + box.bottom) / 2 + (facing === "down" ? 2.56 : -2.56) };
+    return { x: (box.left + box.right) / 2 + (facing === "left" ? -2.56 : 2.56), y: box.top + ((i + 0.5) * h) / count };
   });
 }
 
