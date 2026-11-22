@@ -391,9 +391,12 @@ const DOLL_KINDS = {
   boy: { file: "/models/meshy-boy.glb", head: 1.25, scale: 0.91, wide: 1.15 },
   // 곱슬머리: 키 1.2 로 만들어져 1 로 줄인다. 앉기(뒤돌아보고 앉는 동작의 마지막 장면)는 엉덩이가 덜 내려가고 덜 빠져서, 여자 인형 엉덩이 자리에 맞게 올리고 조금만 민다
   curly: { file: "/models/meshy-child.glb", head: 1, scale: 1 / 1.2, wide: 1, sit: { down: -0.075, fwd: 0.042 } },
-  // 헤어롤(긴 머리 여자, meshy-doll-clips.mjs longhair): 키 1.2. 앉기 동작이 없어 같은 Meshy 뼈대인 곱슬머리의 앉기 자세를 빌린다(sitFrom).
-  // 폴짝(Happy_jump, 9.8초 동안 여러 번 뛴다)은 0.7초부터 한 번 뛰는 만큼만 제 빠르기로
-  roller: { file: "/models/meshy-woman.glb", head: 1, scale: 1 / 1.2, wide: 1, sit: { down: -0.075, fwd: 0.042 }, sitFrom: "curly", jump: { from: 0.7, speed: 1 } },
+  // 헤어롤 자리(파란 후드 긴 머리 소녀 Little Dreamer, scripts/fix-dreamer-rig.mjs → meshy-doll-clips.mjs → fix-meshy-walk-width.mjs): 키 1.4 로 만들어져 여자 인형 키로 줄인다.
+  // 동작은 idle(기본 자세에서 팔을 내린 한 장면) · walk · run 뿐: 안녕은 팔 뼈를 돌려 흔들고, 폴짝은 몸 전체를 튀긴다. 앉기는 같은 Meshy 뼈대인 곱슬머리의 앉기 자세를 빌린다(sitFrom).
+  // 앉기 보정: 빌린 자세의 골반 높이(곱슬머리 뼈 단위)가 키 배율만큼 낮아져서, 곱슬머리와 같은 엉덩이 높이가 되게 down = -0.075 - 0.185·DOLL_H·(1/1.2 - 1/1.4)
+  // 빌린 앉기 자세는 고개를 27° 숙이고 등이 굽어 게임 카메라에서는 정수리만 보인다: 허리를 펴고 고개를 들어(sitFix, DOLL_WAVE 와 같은 형식) 얼굴이 보이게
+  roller: { file: "/models/meshy-woman.glb", head: 1, scale: 1 / 1.4, wide: 1, h: 1.4, sit: { down: -0.107, fwd: 0.036 }, sitFrom: "curly",
+    sitFix: [["Spine1", 1, 0, 0, -0.15], ["Spine2", 1, 0, 0, -0.15], ["Head", 1, 0, 0, -0.2]] },
   // 펭귄(scripts/meshy-penguin.mjs): 키 0.8 그대로 (사람보다 작게). 동작을 직접 만들어 안녕 팔 보정(DOLL_WAVE)은 하지 않는다 (waveFix).
   // 앉기는 엉덩이가 거의 바닥까지 내려가 여자 인형 엉덩이 높이만큼 올리고, 몸이 둥글어 등받이에 묻히지 않게 앞으로 민다
   penguin: { file: "/models/meshy-penguin.glb", head: 1, scale: 1, wide: 1, h: 0.8, waveFix: false, sit: { down: -0.19, fwd: 0.1 } },
@@ -454,10 +457,11 @@ function buildDoll(kind) {
   for (const [side, name] of [["left", "LeftHand"], ["right", "RightHand"]]) { const a = pivot(0, 0.07 / bu, 0.02 / bu, bone(name)); a.scale.setScalar(1 / (DOLL_H * K.scale * bu)); food[side] = { anchor: a, key: "" }; }
   // 안녕 동작이 있으면 그 위에 팔을 펴는 보정(DOLL_WAVE), 없으면 팔 뼈를 돌려서 흔든다 (poseDoll)
   const bones = { head: bone("Head"), headScale: K.head, arms: { left: bone("LeftArm"), right: bone("RightArm") }, fore: { left: bone("LeftForeArm"), right: bone("RightForeArm") },
-    wave: act.wave && K.waveFix !== false ? DOLL_WAVE.map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) : [] };
+    wave: act.wave && K.waveFix !== false ? (K.waveBones || DOLL_WAVE).map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z).normalize(), ang]) : [],
+    sit: (K.sitFix || []).map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) };
   // AnimationMixer may skip writing unchanged keyframes. Restore its last
   // unmodified pose before every update so procedural rotations never accumulate.
-  const posed = [...new Set([bones.head, ...Object.values(bones.arms), bone("LeftForeArm"), bone("RightForeArm"), ...bones.wave.map(([b]) => b)])];
+  const posed = [...new Set([bones.head, ...Object.values(bones.arms), bone("LeftForeArm"), bone("RightForeArm"), ...bones.wave.map(([b]) => b), ...bones.sit.map(([b]) => b)])];
   const basePose = posed.map((b) => [b, b.quaternion.clone()]);
   const arm = {};
   for (const [side, sign] of [["left", 1], ["right", -1]]) arm[side] = {
@@ -507,6 +511,7 @@ function poseDoll(c, m, dt, now, seat) {
   // 팔 바깥으로 펴기 · 고개 기울이기는 팔을 드는 만큼만 (들 때 서서히 더하고, 내릴 때 서서히 뺀다)
   const raise = standWave ? smooth01(d.waveT, ...DOLL_WAVE_T.up) * (1 - smooth01(d.waveT, ...DOLL_WAVE_T.down)) : 0, wv = d.w.wave * raise;
   if (wv > 0.01) for (const [b, axis, ang] of d.bones.wave) turnBone(b, m.root, axis, ang * wv);
+  if (d.w.sit > 0.01) for (const [b, axis, ang] of d.bones.sit) turnBone(b, m.root, axis, ang * d.w.sit);
   m.body.position.set(0, -d.sit.down * d.w.sit, d.sit.fwd * d.w.sit);
   m.body.scale.y = c.moving || seat ? 1 : 1 + Math.sin(now * 2.6) * 0.012;
   m.body.rotation.z = c.act?.kind === "shiver" ? (Math.floor(c.act.t / 0.07) % 2 ? 0.04 : -0.04) : 0;
