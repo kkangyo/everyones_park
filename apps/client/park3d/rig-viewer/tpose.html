@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>T자세 시트</title>
+<!-- 개발용: 인형을 T자세(팔을 양옆 수평)로 세워 앞·오른쪽·뒤·왼쪽을 정사영으로 한 장에 그린다.
+     /park3d/rig-viewer/tpose.html?m=/models/meshy-boy.glb  (m 을 쉼표로 여러 개 주면 줄마다 하나씩)
+     팔은 위팔·아래팔·손 뼈를 차례로 옆(±x) 수평으로 돌린다. 다리·몸은 리깅 기본 자세 그대로. -->
+<style>
+  :root { --bg: #f4f2ee; --fg: #3a3833; --mute: #8a867d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100dvh; }
+  #labels { position: fixed; inset: 0; pointer-events: none; }
+  #labels span { position: absolute; transform: translateX(-50%); font-size: 13px; color: var(--mute); }
+  #labels b { position: absolute; left: 16px; font-size: 14px; color: var(--fg); font-weight: 600; }
+</style>
+<canvas></canvas>
+<div id="labels"></div>
+<script src="../three.min.js"></script>
+<script src="../GLTFLoader.js"></script>
+<script src="../meshopt_decoder.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const FILES = (q.get("m") ?? "/models/meshy-boy.glb").split(",");
+const VIEWS = [["앞", 0], ["오른쪽", -Math.PI / 2], ["뒤", Math.PI], ["왼쪽", Math.PI / 2]];   // 인형 기준 (인형의 왼쪽이 +x, 카메라 yaw)
+
+const canvas = document.querySelector("canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.setScissorTest(true);
+
+const tq = new THREE.Quaternion(), tv = new THREE.Vector3(), tv2 = new THREE.Vector3();
+// bone 을 돌려 bone→tip 방향이 dir(월드) 이 되게
+function aim(bone, tip, dir) {
+  bone.updateWorldMatrix(true, true);
+  const from = tip.getWorldPosition(tv).sub(bone.getWorldPosition(tv2)).normalize();
+  const rot = new THREE.Quaternion().setFromUnitVectors(from, dir);
+  const world = bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(rot);
+  const parentQ = bone.parent.getWorldQuaternion(tq);
+  bone.quaternion.copy(parentQ.invert().multiply(world));
+  bone.updateWorldMatrix(false, true);
+}
+
+async function load(file) {
+  const g = await new THREE.GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(file);
+  const root = g.scene, bones = {};
+  root.traverse((o) => { if (o.isBone) bones[o.name.replace(/^mixamorig:?/, "")] = o; if (o.isMesh) { o.frustumCulled = false; o.material.metalness = 0; } });   // Meshy 웹 인형은 metalness 1 이라 환경 맵 없이 어둡다 (게임은 툰 음영)
+  root.updateWorldMatrix(true, true);
+  for (const side of ["Left", "Right"]) {
+    const arm = bones[side + "Arm"], fore = bones[side + "ForeArm"], hand = bones[side + "Hand"];
+    if (!arm || !fore || !hand) continue;
+    const dir = new THREE.Vector3(Math.sign(fore.getWorldPosition(tv).x - arm.getWorldPosition(tv2).x) || (side === "Left" ? 1 : -1), 0, 0);
+    aim(arm, fore, dir); aim(fore, hand, dir);
+    const tip = hand.children.find((c) => c.isBone);   // 손끝 뼈가 있으면 손도 펴 준다
+    if (tip) aim(hand, tip, dir);
+  }
+  root.updateWorldMatrix(true, true);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.0));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(1, 2, 3); scene.add(sun);
+  scene.add(root);
+  // 테두리 상자: 뼈 위치(바닥 y=0 포함)에 여유를 둔다. 양자화된 스킨 메시는 three r128 에서 꼭짓점으로 재기 어렵다
+  const box = new THREE.Box3().expandByPoint(new THREE.Vector3(0, 0, 0)), v = new THREE.Vector3();
+  root.traverse((o) => { if (o.isBone) box.expandByPoint(o.getWorldPosition(v)); });
+  const sz = box.getSize(new THREE.Vector3());
+  box.expandByVector(new THREE.Vector3(sz.y * 0.12, sz.y * 0.06, sz.y * 0.25)); box.min.y = 0;
+  return { file, scene, sun, box };
+}
+
+(async () => {
+  const items = (await Promise.all(FILES.map((f) => load(f).catch((e) => (console.error(f, e), null))))).filter(Boolean);
+  function draw() {
+    const W = innerWidth, H = innerHeight; renderer.setSize(W, H, false);
+    renderer.setClearColor(0xf4f2ee); renderer.setScissor(0, 0, W, H); renderer.clear();
+    const labels = [];
+    const rowH = H / items.length, LBL = 28;
+    items.forEach((it, r) => {
+      const size = it.box.getSize(new THREE.Vector3()), c = it.box.getCenter(new THREE.Vector3());
+      const span = Math.max(size.x, size.z) * 1.08, half = Math.max(size.y * 1.08, span * (rowH - LBL) / (W / 4)) / 2;
+      const cellW = W / 4, aspect = cellW / (rowH - LBL);
+      VIEWS.forEach(([name, yaw], i) => {
+        const cam = new THREE.OrthographicCamera(-half * aspect, half * aspect, half, -half, 0.01, 50);
+        const d = 10; cam.position.set(c.x + d * Math.sin(yaw), c.y, c.z + d * Math.cos(yaw)); cam.lookAt(c.x, c.y, c.z);
+        it.sun.position.set(cam.position.x - c.x + Math.cos(yaw) * 3, 6, cam.position.z - c.z - Math.sin(yaw) * 3);   // 보는 쪽에서 빛
+        const y0 = H - (r + 1) * rowH;   // WebGL 은 아래가 0
+        renderer.setViewport(i * cellW, y0, cellW, rowH - LBL); renderer.setScissor(i * cellW, y0, cellW, rowH - LBL);
+        renderer.render(it.scene, cam);
+        labels.push(`<span style="left:${(i + 0.5) * cellW}px;top:${r * rowH + 6}px">${name}</span>`);
+      });
+      labels.push(`<b style="top:${r * rowH + 5}px">${it.file.split("/").pop()}</b>`);
+    });
+    document.getElementById("labels").innerHTML = labels.join("");
+  }
+  addEventListener("resize", draw); draw();
+  window.items = items; window.tposeReady = true;
+})();
+</script>
+</html>
