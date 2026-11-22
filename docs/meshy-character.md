@@ -3,6 +3,10 @@
 공원 3D 인형을 Meshy AI로 만들 때 지킬 점과, Meshy에 같이 보낼 프롬프트를 모았다.
 첫 인형(민트 패딩, `assets/models/meshy-mint.glb`)을 만들며 겪은 문제를 바탕으로 했다.
 
+**지금 게임에서 고를 수 있는 인형 (2026-11-22)**: 마루(곱슬머리, `meshy-child.glb`, 머리 모양 값 `curly`) · 하늘(파란 후드 긴 머리, `meshy-woman.glb`, `roller`) · 펭귄 · 알파카.
+여자(`meshy-mint.glb`)·남자(`meshy-boy.glb`) 인형은 고르기 탭과 `DOLL_KINDS` 에서 뺐다 (파일은 남아 있다). 예전 꾸미기 값으로 들어오는 사람은 짧은 머리(`short`) → 마루, 긴 머리 등 그 밖 → 하늘로 입힌다 (`dollKind`).
+아래 글의 '곱슬머리' = 마루, '헤어롤' = 하늘.
+
 ## 1. 지킬 점
 
 ### 원본 그림
@@ -91,6 +95,8 @@ node scripts/meshy-doll-clips.mjs meshy_child_motion.glb assets/models/meshy-chi
   "Idle_11=idle,Walking=walk,Hop_with_Arms_Raised=jump,Look_Back_and_Sit=sit@last,Wave_One_Hand=wave" darkbrown 0.55 yellow
 ```
 
+- **걸음 11자**: Mixamo 걷기가 다리를 엉덩이 관절(±0.058) 바로 밑으로 곧게 내려 통통한 바지가 가운데서 겹쳐 X 자로 보였다. 게임용 파일에 바로 덧씌운다:
+  `node scripts/fix-meshy-walk-width.mjs assets/models/meshy-child.glb assets/models/meshy-child.glb` (알파카 4번과 같은 방법: 키마다 허벅지를 돌려 무릎을 서 있기 발목 너비(±0.076)로, 정강이·발은 원래 방향 유지, 뜬 만큼 골반 내림. 다른 인형·동작은 `[무릎 너비] [동작 이름들]` 인자). meshy-doll-clips.mjs 를 다시 돌렸으면 이것도 다시 돌린다.
 - 게임에 필요한 동작: idle · walk · sit (필수), wave · jump (있으면 씀). 이름표에 없는 동작은 버린다 (지금은 Running · Stand_and_Drink · sleep. 인형은 run 을 쓰지 않는다).
 - Meshy 웹에서 받은 파일이 30MB 를 넘는 건 4K PNG 텍스처 세 장(색 13MB · 노멀 11MB · 금속·거칠기 6MB) 때문이다. 툰 음영은 색만 쓰므로 노멀·금속은 지우고 색을 512 JPEG 로 줄여 약 390KB 가 된다.
 - 끝에 `split` 을 붙이면 겨드랑이 아래에서 팔 옷과 몸통 옷을 잘라 따로 움직이게 한다. 팔이 몸에 거의 붙은 첫 모델에서 맞춘 값이라, 팔이 더 벌어진 지금 모델에서는 소매가 조각나서 쓰지 않는다.
@@ -100,14 +106,32 @@ node scripts/meshy-doll-clips.mjs meshy_child_motion.glb assets/models/meshy-chi
   - `skin`: 얼굴·손이 연보라빛 흰색이면 게임 음영에서 회색으로 보인다. 살 부분을 곱슬머리 인형 살색으로 옮기고, 텍스처에 그려진 가는 긁힘 선을 고르게 한다.
   - `smooth`: 노멀을 이웃끼리 평균해 툰 음영의 폴리곤 얼룩을 줄인다.
   - `tex1024`: 텍스처를 512 대신 1024 로 (약 +100KB).
-- 긴 머리 여자(헤어롤, `assets/models/meshy-woman.glb`):
+- **헤어롤 자리 = 파란 후드 긴 머리 소녀 (Little Dreamer, 2026-11-22 교체, `assets/models/meshy-woman.glb`)**. 원본 `assets/models/Meshy_AI_Little_Dreamer_Rigged_20261122_animated_mixamo_All_animation.glb` (동작 Walking · Running · Hello_Run, 키 1.4, 기본 자세는 팔을 옆으로 편 T 자):
   ```
-  node scripts/meshy-doll-clips.mjs meshy_child_woman_motion.glb assets/models/meshy-woman.glb \
-    "Idle_9=idle,Walking=walk,Running=run,Happy_jump_f=jump,Wave_One_Hand=wave,Sleep_Normally=sleep" darkbrown 0.55 none longhair standlegs skin smooth tex1024
+  node scripts/fix-dreamer-rig.mjs assets/models/Meshy_AI_Little_Dreamer_Rigged_20261122_animated_mixamo_All_animation.glb /tmp/dreamer-rigfix.glb
+  node scripts/meshy-doll-clips.mjs /tmp/dreamer-rigfix.glb /tmp/dreamer-clips.glb "Walking=walk,Running=run,Idle=idle" darkbrown 0.64 none tex1024
+  node scripts/fix-meshy-walk-width.mjs /tmp/dreamer-clips.glb assets/models/meshy-woman.glb 0.11 walk,run
   ```
+  - **소매가 딸려 올라감**: 자동 리깅이 어깨·소매 윗부분을 머리 뼈에 60~80% 붙여 놓아(T 자 기본 자세라 옆머리와 소매가 같은 높이), 걸으며 팔을 내리면 소매 윗부분이 머리 쪽에 남아 위로 끌려 올라가고 옆머리 끝은 팔 뼈를 따라 소매 속으로 끌려갔다. `fix-dreamer-rig.mjs` 가 머리카락(텍스처 갈색) 아닌 턱 아래 꼭짓점을 위치로 다시 칠한다(몸통은 척추 높이 순 · 소매는 팔 축을 따라 위팔→아래팔→손 · 엉덩이 아래로 갈수록 원래 무게). 머리카락은 0.64 위는 Head, 아래 끝은 Spine2·Spine1 로. 어깨에 얹힌 머리카락 끝과 소매가 같은 꼭짓점을 써서 막처럼 늘어나던 것은 경계 꼭짓점(28개)을 복제해 머리카락 삼각형만 복제본을 쓰게 했다.
+  - **서 있기**: Idle 동작이 없어 `fix-dreamer-rig.mjs` 가 기본 자세에서 팔만 몸 옆으로 내린(수직에서 0.32rad) 한 장면 Idle 을 만든다. 다리는 기본 자세(발목 ±0.133, 11 자) 그대로. 안녕·폴짝·앉기 동작은 없다(게임이 팔 뼈를 돌려 흔들고, 앉기는 곱슬머리 것을 빌린다).
+  - **걸음 11자**: 걷기·뛰기 무릎이 엉덩이 관절(±0.073) 바로 밑(±0.07)이라 X 자였다. 무릎 ±0.11 로 (서 있기 ±0.12 보다 조금 좁게). 이때 `fix-meshy-walk-width.mjs` 의 골반 내림이 뼈대 배율 0.01 을 빠뜨려 거의 0 이던 것을 고쳤다 (곱슬머리는 내릴 양이 1mm 남짓이라 다시 돌리지 않았다).
+  - 게임 설정 `DOLL_KINDS.roller`: `scale 1/1.4` · `h 1.4` · `head 1`(머리가 이미 크다) · 앉기 `down -0.107, fwd 0.036` (빌린 앉기 자세의 골반 높이가 키 배율만큼 낮아지는 만큼: −0.075 − 0.185·DOLL_H·(1/1.2 − 1/1.4). 같은 식이 예전 키 1.7 인형의 −0.141 과 맞는다) · `sitFix` 그대로 · 예전 인형용 `waveBones` 는 뺐다(안녕 동작이 없다).
+  - 뷰어에서는 Meshy 재질이 metalness 1 이라 어둡게 보인다 (게임은 툰 음영이라 상관없다).
+- (예전) 긴 머리 여자(헤어롤, 라벤더 래글런 맨투맨):
+  ```
+  node scripts/meshy-doll-clips.mjs assets/models/meshy_woman_blender.glb assets/models/meshy-woman.glb \
+    "Walking=walk,Running=run,Wave_One_Hand=wave,Wave_One_Hand=idle@first" darkbrown 0.55 none longhair standlegs skin smooth tex1024 armweights hemweights paint
+  ```
+  - 원본은 Blender 에서 내보낸 `assets/models/meshy_woman_blender.glb` (동작 Running · Walking · Wave_One_Hand 뿐). Idle 이 없어 `@first` 로 안녕 첫 장면을 서 있기로 쓴다. 폴짝 동작은 없다.
+  - `@first`: 그 동작의 첫 장면만 남긴 새 동작을 만든다. 같은 원래 이름을 여러 번 써서 원래 동작도 함께 남길 수 있다.
+  - `armweights` (안녕할 때 손·옷 이음매): 자동 리깅이 ① 가슴 앞·등 조끼를 위팔 뼈에 붙여 팔을 들면 조끼가 팔을 따라 부풀고 ② 손을 허벅지 뼈에도 20~30% 붙여(기본 자세에서 손이 허벅지 옆) 팔을 들면 손이 허리 쪽으로 길게 늘어나고 ③ 어깨 소매를 머리 뼈에 붙여 놓았다 ④ 기본 자세에서 아래팔이 허리 옆에 늘어져 조끼 옆구리가 아래팔 뼈에 붙고, 소매 안쪽과 옆구리가 메시로 이어져 팔을 들면 흰 조끼가 길게 끌려 올라갔다. 소매가 통통해 몸통에 닿아 위치로는 못 가르므로 텍스처 색(밝은 조끼 / 어두운 소매)으로 가른다: 팔꿈치 전 밝은 꼭짓점은 팔 뼈를 빼고, 아래팔·손은 팔 뼈에만, 목 아래 팔 쪽은 머리 뼈를 뺀다. 같은 자리 꼭짓점(UV 이음매)은 한 점으로 보고 겨드랑이 둘레만 경계를 이웃끼리 평균해 찢어지지 않게 한다(아래팔 옆 조끼는 딱 자른다). 끝으로 팔(겨드랑이 아래)·손과 몸통을 잇는 삼각형을 지운다 (기본 자세에서는 팔과 몸 사이에 숨어 있다).
+  - `paint` (색 다듬기, 기준 그림: 크림 맨투맨 · 라벤더 래글런 소매): 원본은 맨투맨(255,237,227)·살(252,236,227)이 거의 같은 색이라 게임 음영에서 얼굴·목·몸통이 한 덩어리로 보이고 소매도 옅었다. 삼각형을 뼈 무게·색으로 나눠 UV 위에 칠한다: 맨투맨 따뜻한 크림 · 소매 진한 라벤더 · 목깃(맨투맨 맨 위 4cm)·밑단·소매 끝(위팔→손 축 0.84 넘게)은 진한 크림 골지 (칸마다 3D 위치를 보간해 둘레 각도로 줄무늬). 주름 음영은 남기고, 가슴 구름 무늬는 칠하지 않는다 (원본부터 조각나 있다).
+  - `hemweights` (앉기): 허리 아래로 내려오는 조끼 아랫단이 허벅지 뼈에 붙어 앉으면 등 쪽 옷자락이 뒤로 부풀었다. 무릎 위 밝은 꼭짓점의 다리 뼈 무게를 골반 관절 위는 모두, 아래는 엉덩이 쪽만 Hips 로 옮긴다 (앞자락은 무릎 위에 덮이게 둔다).
+  - 게임 설정(`DOLL_KINDS.roller`): 원본이 키 1.7 이라 `scale 1/1.7` · `h 1.7` (1/1.2 로 두면 다른 인형보다 1.4배 크다). 머리가 작고 목이 드러나 처져 보여서 `head 1.15`. 앉기 보정 `down -0.141, fwd 0.03` (앉았을 때 골반이 다른 인형과 같은 높이).
+  - 안녕(`waveBones`): 동작 그대로는 팔꿈치를 100° 넘게 접어 손이 어깨에 붙고 소매가 뭉개진다. 흔드는 중간 장면의 팔 방향에서 "위팔 옆으로 30° · 아래팔 세움" 으로 돌리는 축·각을 구해 `DOLL_WAVE` 대신 쓴다. 머리가 커서 손은 볼 바깥 끝에 온다.
+  - 앉기 자세는 곱슬머리 것을 빌려서 고개를 27° 숙이고 등이 굽어 게임 카메라에서 정수리만 보였다. 게임 코드에서 허리를 펴고 고개를 든다 (`DOLL_KINDS.roller.sitFix`: Spine1·Spine2 −0.15, Head −0.2, 앉은 정도만큼).
   - 머리카락이 팔 바깥까지 덮고 있어서, 팔을 들면 손이 머리카락 속으로 들어가 가려진다 (원본도 같음).
-  - 원본 `assets/models/meshy_child_woman_motion.glb`도 서 있기·안녕 하체를 보정했다. 재적용: `node scripts/fix-meshy-standing.mjs <입력.glb> <출력.glb>`. 상체 동작·다른 애니메이션·텍스처는 유지한다. [보정된 대기·인사 미리보기](meshy-woman-standing.png).
-  - 앉기 동작이 없어 게임은 곱슬머리 인형의 앉기 자세를 빌린다 (`DOLL_KINDS` 의 `sitFrom`). 폴짝(Happy_jump, 9.8초)은 0.7초부터 한 번 뛰는 만큼만 쓴다 (`jump`).
+  - 앉기 동작이 없어 게임은 곱슬머리 인형의 앉기 자세를 빌린다 (`DOLL_KINDS` 의 `sitFrom`).
 - `@last`: 마지막 장면만 남긴다. 뒤돌아보고 앉는 동작은 앉아 있는 자세만 쓴다.
 - 마지막 인자 `yellow`: 노란 가방·가방끈을 등 뼈에만 붙인다. 안 하면 팔을 들 때 끈이 팔을 따라 늘어난다.
 - 받은 파일은 키 1.2 라 `DOLL_KINDS`의 전체 배율을 1/1.2 로 한다. 앉기 보정(`sit`)은 앉았을 때 엉덩이가 여자 인형 엉덩이 자리에 오게 맞춘다.
@@ -128,5 +152,24 @@ node scripts/meshy-penguin.mjs assets/models/Meshy_AI_Penguin_motion.glb assets/
   - `walk` 0.8초(두 걸음): 팔을 기본 자세보다 조금 벌리고, 짧은 다리만 번갈아 들었다 놓는 아장아장 (발바닥은 바닥과 나란히)
   - `wave` 4.1초: 게임 안녕 시간표(`DOLL_WAVE_T`)와 같게 0.2~0.8 들기 · 2.7 까지 흔들기 · 3.4 까지 내리기. 팔이 짧아 머리 옆까지 들면 귀마개에 가려서 옆으로 펴서 흔든다
   - `sit` 3.2초: 엉덩이를 내리고 다리를 앞으로 내밀어 발을 까딱인다. 아랫배가 허벅지 뼈에 붙어 있어 허벅지를 많이 들면 몸이 뒤로 젖혀진다
+- **털 색**: 얼굴·귀마개 털이 노란 크림색(약 250,228,170)이라 흰색 쪽으로 바꿨다. 게임용 파일에 바로 덧씌운다:
+  `node scripts/whiten-meshy-fur.mjs assets/models/meshy-penguin.glb assets/models/meshy-penguin.glb` (초록·파랑이 밝은 크림 화소만 채도 0.25 로 줄이고 밝기를 흰색 쪽으로 0.5 올린다. 노란 패딩·빨간 목도리·주황 부리·발·분홍 볼은 그대로. 더 희게: 뒤에 `[채도] [밝기]` 예 `0.1 0.7`). meshy-penguin.mjs 를 다시 돌렸으면 이것도 다시 돌린다.
 - 원본 파일은 그대로 둔다. 키 0.8 이다.
 - 게임: `DOLL_KINDS.penguin` (머리 모양 값 `penguin`, 첫 화면 '펭귄' 탭). 키 그대로(사람보다 작게) · 안녕 팔 보정(`DOLL_WAVE`) 안 함 · 앉기 보정 `down -0.19, fwd 0.1`(앉으면 엉덩이가 거의 바닥이라 여자 인형 엉덩이 높이로 올린다).
+
+## 6. 알파카 리깅 수정 (Meshy 자동 리깅, 2족 SD 비인간형)
+
+```
+python3 scripts/fix-alpaca-rig.py assets/models/Meshy_AI_Cozy_Alpaca_Reference_Texture_20261121_animated_mixamo_All_animation.glb assets/models/Meshy_AI_Cozy_Alpaca_rigfix.glb
+```
+
+- Meshy 자동 리깅은 사람 뼈대(Mixamo)를 큰 머리 동물에 그대로 씌워 가중치가 엉망이었다: 왼손 밑 `Bone_028` 이 머리 속에 있어 팔을 흔들면 머리·귀가 찌그러짐 · 위팔을 어깨 뼈가 잡아 팔이 안 따라옴 · 머리 가중치가 가슴·팔로 번짐 · 발바닥을 정강이가 잡음.
+- 스크립트: `Bone_028`·왼손에만 있던 손가락 뼈 삭제 → 어깨 뼈 좌우 대칭 → 가중치를 위치로 새로 칠함(머리·귀는 Head 하나, 몸통·목도리·꼬리는 척추 높이 순, 소매는 팔 축 반지름, 짧은 다리는 높이 순, 가랑이 위 가운데는 Hips).
+- **걸음 11자**: 서 있는 자세는 무릎·발목이 x ±0.149 인데 Mixamo 걷기·달리기가 다리를 엉덩이 관절(±0.07) 밑으로 곧게 내려 바지·발굽이 가운데서 겹쳤다(X 자). 키마다 허벅지를 돌려 무릎을 서 있을 때 너비로, 정강이·발은 원래 방향을 유지, 벌어져 뜬 만큼 골반을 내린다.
+- **털 색**: 따뜻한 베이지(평균 218,185,150)를 살짝 흰 크림으로. 메시 위치로 털 부위(머리·귀, 코트 밑 다리, 꼬리)만 골라 UV 마스크를 만들고 그 안의 크림색 화소만 채도를 줄이고(`FUR_CHROMA` 0.45) 밝기를 올린다(`FUR_LIFT` 0.35). 코트 밑단·소매 끝 털 장식, 목도리, 분홍 볼·귀 안, 눈·코, 발굽은 그대로. PNG 는 macOS `sips` 로 풀고 묶는다.
+- 원본 파일은 그대로 둔다.
+- **게임용**: `python3 scripts/meshy-alpaca.py assets/models/Meshy_AI_Cozy_Alpaca_rigfix.glb assets/models/meshy-alpaca.glb` (1.5MB)
+  - 뼈 이름의 `mixamorig:` 떼기 · 걷기(11자 보정) = `walk` · 달리기는 버림 · `idle`(팔을 몸 옆에 내리고 숨쉬기·고개 갸웃) · `sit`(허벅지를 들어 짧은 다리를 내밀고 발 까딱)은 뼈를 돌려 만든다 · `wave` 없음(게임이 팔 뼈를 돌려 흔든다) · 텍스처 1024 JPEG(sips).
+  - 메시 압축(meshopt)은 안 했다(다른 인형은 400KB 안팎). gltf-transform 을 설치하면 meshy-doll-clips.mjs 처럼 줄일 수 있다.
+- 게임: `DOLL_KINDS.alpaca` (머리 모양 값 `alpaca`, 첫 화면 '알파카' 탭). 키 1.7 로 만들어져 `scale 1/1.7`(여자 인형 키) · `h 1.7` · 뼈 단위가 m 라 `boneUnit: 1`(손에 든 간식 자리 계산, 다른 인형은 cm) · 앉기 보정 `down -0.3, fwd -0.28`(엉덩이를 벤치 높이로 올리고 좌석 안쪽으로).
+- 확인: `/park3d/rig-viewer/` (원본·수정본을 나란히 재생, 바닥 선은 발목이 지나간 자리). 다른 모델은 `?a=<경로>&b=<경로>`.

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>리깅 뷰어</title>
+<!-- 개발용: 리깅·동작 확인. /park3d/rig-viewer/?a=<모델 경로>&b=<비교 모델 경로>
+     기본은 마루(왼쪽)와 하늘(오른쪽) 게임용 인형. 원본·수정본을 비교할 때는 a·b 에 두 파일을 준다. 바닥의 선은 양발(발목 뼈)이 지나간 자리. -->
+<style>
+  :root { --bg: #2b2d31; --panel: #1f2024ee; --fg: #e8e6e3; --mute: #9a978f; --acc: #7fc3a6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100dvh; touch-action: none; }
+  .panel { position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 760px; margin: 0 auto; background: var(--panel);
+    border-radius: 14px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  button, select { font: inherit; color: var(--fg); background: #33353b; border: 1px solid #4a4c53; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  button[aria-pressed=true] { background: var(--acc); color: #10241b; border-color: var(--acc); }
+  label { display: inline-flex; gap: 6px; align-items: center; color: var(--mute); }
+  input[type=range] { width: 140px; }
+  .labels { position: fixed; top: 14px; left: 0; right: 0; display: flex; justify-content: space-around; pointer-events: none; color: var(--mute); font-size: 13px; }
+  #info { position: fixed; top: 40px; left: 16px; color: var(--mute); font-size: 12px; line-height: 1.6; white-space: pre; }
+</style>
+<canvas></canvas>
+<div class="labels"><span id="la"></span><span id="lb"></span></div>
+<div id="info"></div>
+<section class="panel">
+  <select id="clip" aria-label="동작"></select>
+  <button id="play" aria-pressed="true">재생</button>
+  <label>속도 <input id="speed" type="range" min="0.1" max="1.5" step="0.05" value="1"><span id="sv">1.0</span></label>
+  <label>장면 <input id="scrub" type="range" min="0" max="1" step="0.001" value="0"></label>
+  <span>
+    <button data-view="front">앞</button><button data-view="side">옆</button><button data-view="back">뒤</button><button data-view="top">위</button>
+  </span>
+  <label><input id="bones" type="checkbox"> 뼈</label>
+  <label><input id="trail" type="checkbox" checked> 발자국</label>
+</section>
+<script src="../three.min.js"></script>
+<script src="../GLTFLoader.js"></script>
+<script src="../meshopt_decoder.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const FILES = [q.get("a") ?? "/models/meshy-child.glb", q.get("b") ?? "/models/meshy-woman.glb"].filter(Boolean);
+const GAP = 1.1;   // 두 모델 사이 거리
+
+const canvas = document.querySelector("canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2b2d31);
+const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(1, 3, 2); scene.add(sun);
+const grid = new THREE.GridHelper(6, 60, 0x55575e, 0x3a3c42); scene.add(grid);
+
+// 카메라: 드래그 회전 · 휠 확대 (작은 궤도 조작)
+const orbit = { yaw: 0, pitch: 0.12, dist: 4.2, target: new THREE.Vector3(0, 0.8, 0) };
+function placeCamera() {
+  const { yaw, pitch, dist, target } = orbit;
+  camera.position.set(target.x + dist * Math.sin(yaw) * Math.cos(pitch), target.y + dist * Math.sin(pitch), target.z + dist * Math.cos(yaw) * Math.cos(pitch));
+  camera.lookAt(target);
+}
+let drag = null;
+canvas.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  orbit.yaw -= (e.clientX - drag.x) * 0.008; orbit.pitch = Math.max(-0.2, Math.min(1.55, orbit.pitch + (e.clientY - drag.y) * 0.006));
+  drag = { x: e.clientX, y: e.clientY }; placeCamera();
+});
+canvas.addEventListener("pointerup", () => (drag = null));
+canvas.addEventListener("wheel", (e) => { e.preventDefault(); orbit.dist = Math.max(1, Math.min(12, orbit.dist * Math.exp(e.deltaY * 0.001))); placeCamera(); }, { passive: false });
+const VIEWS = { front: [0, 0.12], side: [Math.PI / 2, 0.12], back: [Math.PI, 0.12], top: [0, 1.5] };
+document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { [orbit.yaw, orbit.pitch] = VIEWS[b.dataset.view]; placeCamera(); });
+
+const baseName = (n) => n.replace(/^mixamorig:?/, "");
+const models = [];
+const TRAIL_N = 240;
+function makeTrail(color) {
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TRAIL_N * 3), 3));
+  geo.setDrawRange(0, 0);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color })); scene.add(line);
+  return { line, pts: [] };
+}
+async function load(file, i, n) {
+  const g = await new THREE.GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(file);   // 게임용 인형은 meshopt 압축
+  const root = g.scene; root.position.x = (i - (n - 1) / 2) * GAP; scene.add(root);
+  let bones = {};
+  root.traverse((o) => { if (o.isBone) bones[baseName(o.name)] = o; if (o.isMesh) o.frustumCulled = false; });
+  const mixer = new THREE.AnimationMixer(root);
+  const helper = new THREE.SkeletonHelper(root); helper.visible = false; scene.add(helper);
+  const trails = { Left: makeTrail(0xff8a65), Right: makeTrail(0x64b5f6) };
+  return { file, root, mixer, clips: g.animations, helper, bones, trails, action: null };
+}
+
+const $ = (id) => document.getElementById(id);
+let playing = true, speed = 1;
+$("play").onclick = () => { playing = !playing; $("play").setAttribute("aria-pressed", playing); $("play").textContent = playing ? "재생" : "멈춤"; };
+$("speed").oninput = (e) => { speed = +e.target.value; $("sv").textContent = speed.toFixed(1); };
+$("bones").onchange = (e) => models.forEach((m) => m.helper.visible = e.target.checked);
+$("trail").onchange = (e) => models.forEach((m) => Object.values(m.trails).forEach((t) => t.line.visible = e.target.checked));
+$("scrub").oninput = (e) => {
+  playing = false; $("play").setAttribute("aria-pressed", false); $("play").textContent = "멈춤";
+  for (const m of models) if (m.action) { m.action.time = +e.target.value * m.action.getClip().duration; m.mixer.update(0); }
+};
+
+function playClip(name) {
+  for (const m of models) {
+    m.mixer.stopAllAction();
+    const c = m.clips.find((c) => c.name === name);
+    m.action = c ? m.mixer.clipAction(c).play() : null;
+    Object.values(m.trails).forEach((t) => (t.pts = []));
+  }
+}
+$("clip").onchange = (e) => playClip(e.target.value);
+
+const tmp = new THREE.Vector3();
+function updateTrails() {
+  const lines = [];
+  for (const m of models) {
+    for (const side of ["Left", "Right"]) {
+      const b = m.bones[side + "Foot"], t = m.trails[side]; if (!b) continue;
+      b.getWorldPosition(tmp);
+      t.pts.push(tmp.x, 0.003, tmp.z); if (t.pts.length > TRAIL_N * 3) t.pts.splice(0, 3);
+      const arr = t.line.geometry.attributes.position.array; arr.set(t.pts); t.line.geometry.attributes.position.needsUpdate = true;
+      t.line.geometry.setDrawRange(0, t.pts.length / 3);
+    }
+    const L = m.bones.LeftFoot, R = m.bones.RightFoot;
+    if (L && R) {
+      const lp = L.getWorldPosition(new THREE.Vector3()), rp = R.getWorldPosition(new THREE.Vector3());
+      lines.push(`${m.file.split("/").pop().slice(0, 40)}\n  발목 간격 ${(lp.x - rp.x).toFixed(3)}`);
+    }
+  }
+  $("info").textContent = lines.join("\n");
+}
+
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener("resize", resize);
+
+(async () => {
+  const loaded = await Promise.all(FILES.map((f, i) => load(f, i, FILES.length).catch((e) => { console.error(f, e); return null; })));
+  for (const m of loaded) if (m) models.push(m);
+  $("la").textContent = models[0] ? "◀ " + models[0].file.split("/").pop() : "";
+  $("lb").textContent = models[1] ? models[1].file.split("/").pop() + " ▶" : "";
+  const names = [...new Set(models.flatMap((m) => m.clips.map((c) => c.name)))];
+  $("clip").innerHTML = names.map((n) => `<option>${n}</option>`).join("");
+  const first = names.includes("Walking") ? "Walking" : names[0];
+  $("clip").value = first; playClip(first);
+  resize(); placeCamera();
+  const clock = new THREE.Clock();
+  renderer.setAnimationLoop(() => {
+    const dt = clock.getDelta();
+    if (playing) for (const m of models) m.mixer.update(dt * speed);
+    const a = models[0]?.action; if (a && playing) $("scrub").value = (a.time % a.getClip().duration) / a.getClip().duration;
+    updateTrails();
+    renderer.render(scene, camera);
+  });
+})();
+</script>
+</html>

@@ -31,17 +31,28 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 const doc = await io.read(IN), root = doc.getRoot(), buf = root.listBuffers()[0];
 
 for (const n of root.listNodes()) n.setName(n.getName().replace(/^mixamorig:/, ""));
-const rename = new Map(MAP.split(",").map((p) => { const [from, to] = p.split("="); const [name, mode] = to.split("@"); return [from.trim(), { name, last: mode === "last" }]; }));
+// 같은 원래 이름을 여러 번 써도 된다: @first 는 그 동작의 첫 장면만 남긴 새 동작을 따로 만든다
+// (예: "Wave_One_Hand=wave,Wave_One_Hand=idle@first" — Idle 동작이 없는 파일에서 안녕 첫 장면을 서 있기로)
+const rename = new Map();
+for (const p of MAP.split(",")) { const [from, to] = p.split("="); const [name, mode] = to.split("@"); const k = from.trim(); if (!rename.has(k)) rename.set(k, []); rename.get(k).push({ name, mode }); }
+const oneFrame = (s, out, i) => { const k = out.getElementSize();
+  s.setInput(doc.createAccessor().setType("SCALAR").setArray(new Float32Array([0])).setBuffer(buf));
+  s.setOutput(doc.createAccessor().setType(out.getType()).setArray(out.getArray().slice(i * k, (i + 1) * k)).setBuffer(buf)).setInterpolation("LINEAR"); };
 for (const a of root.listAnimations()) {
-  const r = rename.get(a.getName());
-  if (!r) { console.log("버림:", a.getName()); a.dispose(); continue; }
-  a.setName(r.name);
-  if (!r.last) continue;
-  for (const ch of a.listChannels()) {
-    const s = ch.getSampler(), out = s.getOutput(), k = out.getElementSize(), n = out.getCount();
-    s.setInput(doc.createAccessor().setType("SCALAR").setArray(new Float32Array([0])).setBuffer(buf));
-    s.setOutput(doc.createAccessor().setType(out.getType()).setArray(out.getArray().slice((n - 1) * k, n * k)).setBuffer(buf)).setInterpolation("LINEAR");
+  const rs = rename.get(a.getName());
+  if (!rs) { console.log("버림:", a.getName()); a.dispose(); continue; }
+  for (const r of rs.filter((r) => r.mode === "first")) {
+    const b = doc.createAnimation(r.name);
+    for (const ch of a.listChannels()) {
+      const src = ch.getSampler(), s = doc.createAnimationSampler(); oneFrame(s, src.getOutput(), 0);
+      b.addSampler(s).addChannel(doc.createAnimationChannel().setTargetNode(ch.getTargetNode()).setTargetPath(ch.getTargetPath()).setSampler(s));
+    }
   }
+  const r = rs.find((r) => r.mode !== "first");
+  if (!r) { a.dispose(); continue; }
+  a.setName(r.name);
+  if (r.mode !== "last") continue;
+  for (const ch of a.listChannels()) { const s = ch.getSampler(), out = s.getOutput(); oneFrame(s, out, out.getCount() - 1); }
 }
 /**
  * standlegs: idle·wave 모두 발목을 골반 아래로 모은 같은 하체 자세로 고정한다.
@@ -151,6 +162,141 @@ async function splitArms(prim, joints) {
   prim.getMaterial().setDoubleSided(true);
   console.log("팔 옷 떼기: 오른팔", side.filter((x) => x === 1).length, "· 왼팔", side.filter((x) => x === 2).length, "꼭짓점, 새 꼭짓점", extra.length, "· 막은 구멍", caps);
 }
+/**
+ * armweights: 메시는 자르지 않고 팔·손 무게만 고친다. 자동 리깅이 가슴 앞·등 옷까지 위팔 뼈에 붙여서 팔을 들면 몸통 옷이 팔을 따라 늘어나고,
+ * 손 뼈 무게가 아래팔 소매 중간까지 번져 손을 흔들면 소매가 손을 따라 비틀린다.
+ * 소매가 통통해 몸통에 거의 닿아서 위치로는 소매·몸통 옷을 가를 수 없다: 색으로 가른다 (조끼 = 밝은 색, 소매 = 그보다 어두운 색).
+ * - 손목 전(위팔→손 축 비율 < HANDT)의 밝은 꼭짓점(둘러싼 삼각형 색의 가장 어두운 채널이 LIGHT 넘는 쪽이 많으면)은 몸통 옷: 팔 뼈 무게를 뺀다
+ *   (기본 자세에서 아래팔이 허리 옆에 늘어져 조끼 옆구리가 아래팔 뼈에 붙어 있다. 손은 살색도 밝아서 손목 너머는 그대로)
+ * - 어깨 높이(겨드랑이 위)는 색과 상관없이 어깨 관절보다 몸 안쪽으로 들어간 만큼 팔 뼈 무게를 줄인다 (IN 에서 0)
+ * - 반대쪽 몸의 꼭짓점은 이쪽 팔 뼈 무게를 뺀다
+ * - 아래팔·손(위팔→손 축 비율 > LOW): 기본 자세에서 손이 허벅지 옆에 있어 손을 허벅지 뼈에도 붙여 놓았다 (팔을 들면 손이 허리까지 늘어난다).
+ *   팔 뼈 무게가 HANDARM 이상이거나 소매 색이면서 0.1 이상이면 팔 뼈에만, 아니면(조끼 밑단·바지) 팔 뼈를 뺀다
+ * - 목 아래 팔 쪽 꼭짓점의 머리·목 뼈 무게를 뺀다 (어깨 소매가 머리 뼈에 붙어 고개를 기울이면 어깨가 따라간다. 긴 머리카락은 뒤에서 다시 붙인다)
+ * - 손 뼈 무게는 손목(손 뼈 자리) 근처부터: 아래팔→손 축의 비율 WRIST 이전은 아래팔 뼈로
+ * 뺀 무게는 남은 뼈에 나눠 주고, 남은 뼈가 없으면 Spine2(몸통) · ForeArm(손).
+ */
+/**
+ * 무게 고치기 도우미: 꼭짓점 좌표(뼈와 같은 공간) · 같은 자리 꼭짓점 묶음(grp) · 묶음마다 어두운 정도(dark: 1 = 어두운 옷, 0 = 밝은 옷·살)
+ */
+async function surfaceColor(prim, joints, skin, LIGHT, SMOOTH) {
+  const P = prim.getAttribute("POSITION"), n = P.getCount(), spine = joints.findIndex((j) => j.getName() === "Spine2");
+  // 꼭짓점마다 밝은 삼각형 비율 (삼각형 색 = 세 UV 가운데 텍스처 색)
+  const UV = prim.getAttribute("TEXCOORD_0"), tex = prim.getMaterial().getBaseColorTexture();
+  const { data, info } = await sharp(Buffer.from(tex.getImage())).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+  const idx = prim.getIndices().getArray(), lightN = new Float32Array(n), triN = new Float32Array(n);
+  for (let t = 0; t < idx.length; t += 3) {
+    const uv = [0, 1, 2].map((k) => UV.getElement(idx[t + k], [])), u = (uv[0][0] + uv[1][0] + uv[2][0]) / 3, v = (uv[0][1] + uv[1][1] + uv[2][1]) / 3;
+    const o = (Math.round(Math.min(1, Math.max(0, v)) * (info.height - 1)) * info.width + Math.round(Math.min(1, Math.max(0, u)) * (info.width - 1))) * 4;
+    const light = Math.min(data[o], data[o + 1], data[o + 2]) > LIGHT ? 1 : 0;
+    for (let k = 0; k < 3; k++) { lightN[idx[t + k]] += light; triN[idx[t + k]]++; }
+  }
+  // UV 이음매에서 갈라진 같은 자리 꼭짓점은 한 점으로 본다 (따로 판정하면 이음매가 찢어진다). 이웃끼리 SMOOTH 번 평균해 경계를 부드럽게
+  const grp = new Int32Array(n), keyOf = new Map();
+  for (let i = 0; i < n; i++) { const k = P.getElement(i, []).map((x) => x.toFixed(5)).join(","); if (!keyOf.has(k)) keyOf.set(k, keyOf.size); grp[i] = keyOf.get(k); }
+  const G = keyOf.size, gl = new Float32Array(G), gt = new Float32Array(G), nb = Array.from({ length: G }, () => new Set());
+  for (let i = 0; i < n; i++) { gl[grp[i]] += lightN[i]; gt[grp[i]] += triN[i]; }
+  for (let t = 0; t < idx.length; t += 3) for (let k = 0; k < 3; k++) { const a = grp[idx[t + k]], b = grp[idx[t + (k + 1) % 3]]; if (a !== b) { nb[a].add(b); nb[b].add(a); } }
+  let dark = Float32Array.from({ length: G }, (_, g) => (gl[g] * 2 > gt[g] ? 0 : 1)); // 1 = 소매(팔), 0 = 밝은 몸통 옷
+  const dark0 = dark;
+  for (let it = 0; it < SMOOTH; it++) dark = dark.map((x, g) => { let s = x, c = 1; for (const q of nb[g]) { s += dark[q]; c++; } return s / c; });
+  // 메시 좌표를 뼈와 같은 공간으로: 기본 자세에서는 어느 뼈든 (뼈 월드 행렬 × 역바인드 행렬) 이 같다
+  const ibm = skin.getInverseBindMatrices().getElement(spine, []), jw = joints[spine].getWorldMatrix();
+  const B = new Array(16).fill(0); for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) for (let k = 0; k < 4; k++) B[c * 4 + r] += jw[k * 4 + r] * ibm[c * 4 + k];
+  const pos = (i) => { const p = P.getElement(i, []); return [0, 1, 2].map((r) => B[r] * p[0] + B[4 + r] * p[1] + B[8 + r] * p[2] + B[12 + r]); };
+  return { pos, grp, dark, dark0 };
+}
+async function fixArmWeights(prim, joints, skin) {
+  const IN = 0.07, ARMPIT = 0.03, LIGHT = 200, WRIST = [0.7, 1.0], LOW = 0.6, HANDARM = 0.3, HANDT = 0.95, SMOOTH = 4, SOFT = 0.5, BRIDGE = 0.5, PIT = 0.04;
+  const sm = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const segT = (v, a, b) => { const ab = b.map((x, i) => x - a[i]); return v.reduce((s, x, i) => s + (x - a[i]) * ab[i], 0) / ab.reduce((s, x) => s + x * x, 0); };
+  const P = prim.getAttribute("POSITION"), J = prim.getAttribute("JOINTS_0"), W = prim.getAttribute("WEIGHTS_0"), n = P.getCount();
+  const { pos, grp, dark, dark0 } = await surfaceColor(prim, joints, skin, LIGHT, SMOOTH);
+  const ji = (name) => joints.findIndex((j) => j.getName() === name), jp = (name) => joints[ji(name)].getWorldTranslation();
+  const ja = J.getArray(), wa = W.getArray(), spine = ji("Spine2");
+  let moved = 0, handMoved = 0, legMoved = 0, headMoved = 0;
+  const head = ji("Head"), neck = ji("Neck"), neckY = jp("Neck")[1];
+  for (const s of ["Right", "Left"]) {
+    const A = jp(s + "Arm"), F = jp(s + "ForeArm"), H = jp(s + "Hand"), out = s === "Right" ? -1 : 1;
+    const arm = new Set([ji(s + "Arm"), ji(s + "ForeArm"), ji(s + "Hand")]), hand = ji(s + "Hand"), fore = ji(s + "ForeArm");
+    for (let i = 0; i < n; i++) {
+      const v = pos(i), j = Array.from(ja.subarray(i * 4, i * 4 + 4)), w = Array.from(wa.subarray(i * 4, i * 4 + 4));
+      if (!j.some((x, k) => w[k] > 0 && arm.has(x))) continue;
+      let allow = 1;
+      if (Math.sign(v[0]) !== out) allow = 0;
+      // 손목 전 밝은 꼭짓점 = 조끼 (손은 살색도 밝아서 손목 너머만 예외). 겨드랑이 둘레만 경계를 부드럽게, 아래팔 옆 조끼는 딱 잘라 (반쯤 남기면 팔을 들 때 조끼가 길게 끌려 올라간다)
+      else if (segT(v, A, F) < 1 || segT(v, A, H) < HANDT) allow = segT(v, A, F) < SOFT ? dark[grp[i]] : dark0[grp[i]];
+      if (v[1] > A[1] - ARMPIT) allow *= sm(out * (v[0] - A[0]), -IN, -0.01);
+      let onlyArm = false;
+      if (allow > 0 && segT(v, A, H) > LOW) { const as = j.reduce((t, x, k) => t + (arm.has(x) ? w[k] : 0), 0); if (as >= HANDARM || (as >= 0.1 && dark[grp[i]] > 0.5)) onlyArm = as < 0.999; else allow = 0; }
+      if (onlyArm) { for (let k = 0; k < 4; k++) if (!arm.has(j[k])) w[k] = 0; legMoved++; }
+      // 어깨 소매가 머리 뼈에도 붙어 있다 (고개를 기울이면 어깨가 따라간다): 목 아래 팔 쪽 꼭짓점은 머리·목 뼈를 뺀다
+      let headCut = false;
+      if (allow > 0 && v[1] < neckY) for (let k = 0; k < 4; k++) if ((j[k] === head || j[k] === neck) && w[k] > 0) { w[k] = 0; headCut = true; }
+      if (headCut) headMoved++;
+      const handOk = sm(segT(v, F, H), ...WRIST);
+      let lost = 0, toFore = 0;
+      for (let k = 0; k < 4; k++) {
+        if (!arm.has(j[k]) || !w[k]) continue;
+        const keep = w[k] * allow, cut = w[k] - keep; lost += cut; w[k] = keep;
+        if (j[k] === hand) { const h = w[k] * handOk; toFore += w[k] - h; w[k] = h; }
+      }
+      if (lost < 1e-4 && toFore < 1e-4 && !onlyArm && !headCut) continue;
+      if (lost > 1e-4) moved++; if (toFore > 1e-4) handMoved++;
+      // 손에서 뺀 무게는 아래팔 뼈로 (자리가 없으면 가장 작은 칸을 바꾼다)
+      if (toFore > 0) { let k = j.findIndex((x, q) => x === fore && w[q] > 0); if (k < 0) { k = w.indexOf(Math.min(...w)); j[k] = fore; w[k] = 0; } w[k] += toFore; }
+      const sum = w.reduce((a, b) => a + b, 0);
+      if (sum < 1e-3) { j.fill(0); w.fill(0); j[0] = spine; w[0] = 1; }
+      else for (let k = 0; k < 4; k++) w[k] /= sum;
+      ja.set(j, i * 4); wa.set(w, i * 4);
+    }
+  }
+  J.setArray(ja); W.setArray(wa);
+  // 아래팔·손과 몸통을 잇는 삼각형 지우기: 기본 자세에서 아래팔 안쪽 소매가 조끼 옆구리에 붙어 메시가 이어져 있어, 팔을 들면 그 삼각형이 길게 늘어나
+  // 조끼가 팔을 따라 끌려 올라가 보인다. 꼭짓점 하나는 아래팔·손(겨드랑이 아래 위팔 포함) 뼈가 BRIDGE 넘게, 다른 하나는 몸통 뼈가 BRIDGE 넘게 잡은 삼각형 (어깨 이음매 = 위팔은 그대로)
+  const lower = new Set(["RightForeArm", "RightHand", "LeftForeArm", "LeftHand"].map(ji)), body = new Set(["Hips", "Spine", "Spine1", "Spine2", "LeftUpLeg", "RightUpLeg"].map(ji));
+  // 위팔도 겨드랑이보다 PIT 아래 꼭짓점이면 아래팔과 같이 본다 (위팔 안쪽 소매도 옆구리에 붙어 있다)
+  const upper = new Set(["RightArm", "LeftArm"].map(ji)), pitY = Math.min(jp("RightArm")[1], jp("LeftArm")[1]) - ARMPIT - PIT;
+  const share = (i, set) => { let t = 0; for (let k = 0; k < 4; k++) if (set.has(ja[i * 4 + k]) || (set === lower && upper.has(ja[i * 4 + k]) && pos(i)[1] < pitY)) t += wa[i * 4 + k]; return t; };
+  const idx = prim.getIndices().getArray(), keep = [];
+  let cut = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const tri = [idx[t], idx[t + 1], idx[t + 2]];
+    if (tri.some((i) => share(i, lower) > BRIDGE) && tri.some((i) => share(i, body) > BRIDGE)) { cut++; continue; }
+    keep.push(...tri);
+  }
+  prim.setIndices(prim.getIndices().setArray(new idx.constructor(keep)));
+  console.log("팔 무게 고침: 팔-몸통 삼각형", cut, "개 지움 · 몸통 옷", moved, "꼭짓점 · 손→아래팔", handMoved, "· 손에서 허벅지·허리 뼈 뺌", legMoved, "· 어깨에서 머리 뼈 뺌", headMoved, "꼭짓점");
+}
+if (FLAGS.includes("armweights")) await fixArmWeights(root.listMeshes()[0].listPrimitives()[0], root.listSkins()[0].listJoints(), root.listSkins()[0]);
+/**
+ * hemweights: 허리 아래로 내려오는 밝은 윗옷(조끼) 아랫단을 자동 리깅이 허벅지 뼈에 크게 붙여서, 앉으면(허벅지를 들면) 등 쪽 옷자락이 뒤로 부풀어 오른다.
+ * 무릎(+KNEE) 위 밝은 꼭짓점의 허벅지·종아리 뼈 무게를: 골반 관절보다 위는 모두, 아래는 엉덩이 쪽(골반 관절보다 뒤)만 빼서 Hips 로 (앞자락은 무릎을 따라 무릎 위에 덮이게 둔다)
+ */
+async function fixHemWeights(prim, joints, skin) {
+  const LIGHT = 200, SMOOTH = 2, FRONT = [-0.02, 0.06], KNEE = 0.08;
+  const sm = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const { pos, grp, dark } = await surfaceColor(prim, joints, skin, LIGHT, SMOOTH);
+  const J = prim.getAttribute("JOINTS_0"), W = prim.getAttribute("WEIGHTS_0"), n = J.getCount(), ja = J.getArray(), wa = W.getArray();
+  const ji = (name) => joints.findIndex((j) => j.getName() === name), hips = ji("Hips"), [, hy, hz] = joints[hips].getWorldTranslation();
+  const leg = new Set(["LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"].map(ji)), kneeY = joints[ji("LeftLeg")].getWorldTranslation()[1];
+  let moved = 0;
+  for (let i = 0; i < n; i++) {
+    const light = 1 - dark[grp[i]]; if (light < 0.01) continue;
+    const j = Array.from(ja.subarray(i * 4, i * 4 + 4)), w = Array.from(wa.subarray(i * 4, i * 4 + 4));
+    if (!j.some((x, k) => w[k] > 0 && leg.has(x))) continue;
+    const v = pos(i); if (v[1] < kneeY + KNEE) continue; // 신발·바짓단도 밝아서 무릎 아래는 그대로
+    const keep = 1 - light * (v[1] > hy ? 1 : 1 - sm(v[2] - hz, ...FRONT));
+    let cut = 0;
+    for (let k = 0; k < 4; k++) if (leg.has(j[k]) && w[k] > 0) { const c = w[k] * (1 - keep); w[k] -= c; cut += c; }
+    if (cut < 1e-4) continue;
+    let k = j.findIndex((x, q) => x === hips && w[q] > 0); if (k < 0) { k = w.indexOf(Math.min(...w)); j[k] = hips; w[k] = 0; } w[k] += cut;
+    ja.set(j, i * 4); wa.set(w, i * 4); moved++;
+  }
+  J.setArray(ja); W.setArray(wa);
+  console.log("옷자락 무게 고침: 허벅지 → 골반", moved, "꼭짓점");
+}
+if (FLAGS.includes("hemweights")) await fixHemWeights(root.listMeshes()[0].listPrimitives()[0], root.listSkins()[0].listJoints(), root.listSkins()[0]);
 if (FLAGS.includes("split")) await splitArms(root.listMeshes()[0].listPrimitives()[0], root.listSkins()[0].listJoints());
 // 머리카락은 머리 뼈만, 가방은 등 뼈만 따라가게 (자동 리깅이 옆머리 끝·가방끈을 어깨·팔 뼈에도 붙인다).
 // 꼭짓점 하나의 색은 텍스처 조각 가장자리에서 옆 색을 집을 수 있어, 둘러싼 삼각형이 모두 그 색인 꼭짓점만 고른다
@@ -233,6 +379,79 @@ if (FLAGS.includes("split")) await splitArms(root.listMeshes()[0].listPrimitives
  * skin: 얼굴·손이 연보라빛 흰색이라 게임 음영(밝은 쪽 0.78)에서 회색으로 보인다. 다른 인형의 살색(SKIN)으로 옮긴다.
  * 머리 뼈(얼굴 앞 headfront 포함)·손·아래팔 뼈에 붙은 흰 삼각형(살. 소매는 색이 달라 빠진다) 안의 밝은 칸만 평균 색 → SKIN 비율로 곱한다 (눈·외곽선 같은 어두운 칸, 머리카락·털 깃은 그대로)
  */
+/**
+ * paint: 니트 맨투맨 인형(헤어롤) 색 다듬기. 원본은 조끼(255,237,227)·살(252,236,227)이 거의 같은 색이고 소매도 옅어서, 게임 툰 음영에서는
+ * 얼굴·목·몸통이 한 덩어리 흰색으로 보이고 팔과 옷 경계가 흐리다 (기준 그림: 크림 맨투맨 · 라벤더 래글런 소매 · 골지 목깃·소매 끝·밑단).
+ * 삼각형을 뼈 무게·색으로 나눠(맨투맨 = 밝고 몸통 뼈, 소매 = 라벤더) UV 위에 칠한다. 칸마다 3D 위치를 보간해 골지 줄무늬(목·팔 둘레 각도)를 넣는다.
+ * - 맨투맨: 따뜻한 크림 BODY · 목깃(맨투맨 맨 위 COLLAR 높이)·밑단(맨 아래 HEM 높이): 조금 진한 크림 + 골지
+ * - 소매: 진한 라벤더 SLEEVE · 소매 끝(위팔→손 축 비율 CUFF 넘게): 크림 골지
+ * 원래 칸의 밝기 변화(주름·음영)는 남긴다 (목표색 × 칸 밝기 / 무리 평균 밝기)
+ */
+if (FLAGS.includes("paint")) {
+  const BODY = [238, 224, 200], RIB = [222, 203, 178], SLEEVE = [150, 136, 198], COLLAR = 0.04, HEM = 0.035, CUFF = 0.84, RIBN = 60, RIBA = 0.12, PAD = 6;
+  const prim = root.listMeshes()[0].listPrimitives()[0], skin = root.listSkins()[0], joints = skin.listJoints(), tex = prim.getMaterial().getBaseColorTexture();
+  const { data, info } = await sharp(Buffer.from(tex.getImage())).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+  const Wd = info.width, Ht = info.height, { pos } = await surfaceColor(prim, joints, skin, 200, 0);
+  const names = joints.map((j) => j.getName()), ji = (n) => names.indexOf(n), jp = (n) => joints[ji(n)].getWorldTranslation();
+  const uv = prim.getAttribute("TEXCOORD_0"), J = prim.getAttribute("JOINTS_0"), W = prim.getAttribute("WEIGHTS_0"), idx = prim.getIndices().getArray();
+  const group = (n) => (/Arm|Hand/.test(n) ? "arm" : /Spine|Hips|Shoulder/.test(n) ? "body" : /Head|Neck|headfront/.test(n) ? "head" : "leg");
+  const share = (i) => { const j = J.getElement(i, []), w = W.getElement(i, []), s = { arm: 0, body: 0, head: 0, leg: 0 }; j.forEach((x, k) => (s[group(names[x])] += w[k])); return s; };
+  const px = (i) => { const [u, v] = uv.getElement(i, []); return [Math.min(1, Math.max(0, u)) * (Wd - 1), Math.min(1, Math.max(0, v)) * (Ht - 1)]; };
+  const at = (x, y) => (Math.round(y) * Wd + Math.round(x)) * 4;
+  const segT = (v, a, b) => { const ab = b.map((x, i) => x - a[i]); return v.reduce((s, x, i) => s + (x - a[i]) * ab[i], 0) / ab.reduce((s, x) => s + x * x, 0); };
+  const kneeY = jp("LeftLeg")[1], pitY = Math.min(jp("RightArm")[1], jp("LeftArm")[1]) - 0.03, arms = ["Right", "Left"].map((s) => ({ A: jp(s + "Arm"), H: jp(s + "Hand"), out: s === "Right" ? -1 : 1 }));
+  // 삼각형 나누기: 1 맨투맨 · 2 소매
+  const cls = new Uint8Array(idx.length / 3);
+  for (let t = 0; t < idx.length; t += 3) {
+    const v = [idx[t], idx[t + 1], idx[t + 2]], c = v.map(px), m = at((c[0][0] + c[1][0] + c[2][0]) / 3, (c[0][1] + c[1][1] + c[2][1]) / 3), [r, g, b] = [data[m], data[m + 1], data[m + 2]];
+    const s = v.map(share).reduce((a, x) => { for (const k in a) a[k] += x[k] / 3; return a; }), y = v.reduce((a, i) => a + pos(i)[1], 0) / 3;
+    if (Math.min(r, g, b) > 200 && s.body + s.leg > 0.5 && s.head < 0.3 && y > kneeY + 0.08) cls[t / 3] = 1;
+    // 소매: 라벤더면서 팔 뼈가 잡았거나 겨드랑이 위(래글런 어깨). 가슴의 라벤더 구름 무늬는 몸통 뼈·가슴 높이라 빠진다
+    else if (b > r + 10 && r > 120 && r < 215 && y > kneeY + 0.08 && s.leg < 0.5 && (s.arm > 0.3 || y > pitY)) cls[t / 3] = 2;
+  }
+  // 맨투맨 맨 위(목)·맨 아래(밑단) 높이: 가운데(|x| < 0.1) 맨투맨 꼭짓점에서
+  let top = -1e9, bottom = 1e9;
+  for (let t = 0; t < idx.length; t += 3) if (cls[t / 3] === 1) for (let k = 0; k < 3; k++) { const p = pos(idx[t + k]); if (Math.abs(p[0]) < 0.1) { top = Math.max(top, p[1]); bottom = Math.min(bottom, p[1]); } }
+  // 칸마다 목표색 · 3D 위치 (삼각형을 UV 위에 그린다)
+  const kind = new Uint8Array(Wd * Ht), rib = new Float32Array(Wd * Ht); // kind: 1 몸 · 2 골지(목깃·밑단) · 3 소매 · 4 소매 끝
+  for (let t = 0; t < idx.length; t += 3) {
+    const k0 = cls[t / 3]; if (!k0) continue;
+    const v = [idx[t], idx[t + 1], idx[t + 2]], [a, b, c] = v.map(px), P = v.map(pos), d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]); if (!d) continue;
+    for (let y = Math.floor(Math.min(a[1], b[1], c[1])) - 1; y <= Math.ceil(Math.max(a[1], b[1], c[1])) + 1; y++)
+      for (let x = Math.floor(Math.min(a[0], b[0], c[0])) - 1; x <= Math.ceil(Math.max(a[0], b[0], c[0])) + 1; x++) {
+        if (x < 0 || y < 0 || x >= Wd || y >= Ht) continue;
+        const l1 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d, l2 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d, l3 = 1 - l1 - l2;
+        if (l1 < -0.05 || l2 < -0.05 || l3 < -0.05) continue;
+        const p = [0, 1, 2].map((i) => P[0][i] * l1 + P[1][i] * l2 + P[2][i] * l3), q = y * Wd + x;
+        if (k0 === 1) {
+          const band = p[1] > top - COLLAR || p[1] < bottom + HEM;
+          kind[q] = band ? 2 : 1; if (band) rib[q] = Math.atan2(p[0], p[2] - 0.03); // 몸 둘레 각도
+        } else {
+          const arm = arms.find((s) => Math.sign(p[0]) === s.out) || arms[0], tt = segT(p, arm.A, arm.H);
+          kind[q] = tt > CUFF ? 4 : 3;
+          if (tt > CUFF) { const ax = arm.H.map((x, i) => x - arm.A[i]), r = p.map((x, i) => x - arm.H[i]), n = Math.hypot(...ax); const e1 = [0, 0, 1], e2 = [ax[1] / n, -ax[0] / n, 0]; rib[q] = Math.atan2(r[0] * e2[0] + r[1] * e2[1], r[2] * e1[2]); }
+        }
+      }
+  }
+  // 조각 가장자리 번짐: 칠한 칸 옆 빈 칸을 PAD 칸 넓힌다
+  // (원래 색이 이웃 칠한 칸과 비슷한 칸만: 가슴 구름 무늬처럼 다른 색 그림은 먹지 않게)
+  const near = (q, o) => Math.abs(data[q * 4] - data[o * 4]) + Math.abs(data[q * 4 + 1] - data[o * 4 + 1]) + Math.abs(data[q * 4 + 2] - data[o * 4 + 2]) < 45;
+  for (let s = 0; s < PAD; s++) {
+    const add = [];
+    for (let q = Wd; q < kind.length - Wd; q++) if (!kind[q]) for (const o of [q - 1, q + 1, q - Wd, q + Wd]) if (kind[o] && near(q, o)) { add.push([q, kind[o], rib[o]]); break; }
+    for (const [q, n, r] of add) { kind[q] = n; rib[q] = r; }
+  }
+  const lum = (o) => data[o] * 0.3 + data[o + 1] * 0.59 + data[o + 2] * 0.11, mean = [0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0];
+  for (let q = 0; q < kind.length; q++) if (kind[q]) { mean[kind[q]] += lum(q * 4); cnt[kind[q]]++; }
+  const target = [null, BODY, RIB, SLEEVE, RIB], out = Buffer.from(data);
+  for (let q = 0; q < kind.length; q++) {
+    const k = kind[q]; if (!k) continue;
+    const shade = Math.min(1.15, Math.max(0.75, lum(q * 4) / (mean[k] / cnt[k]))) * (k === 2 || k === 4 ? 1 - RIBA * (0.5 + 0.5 * Math.sin(rib[q] * RIBN)) : 1);
+    for (let c = 0; c < 3; c++) out[q * 4 + c] = Math.min(255, Math.round(target[k][c] * shade));
+  }
+  tex.setImage(new Uint8Array(await sharp(out, { raw: { width: Wd, height: Ht, channels: 4 } }).png().toBuffer())).setMimeType("image/png");
+  console.log("색 칠하기: 맨투맨", cnt[1], "· 목깃·밑단", cnt[2], "· 소매", cnt[3], "· 소매 끝", cnt[4], "칸 (맨투맨 높이", bottom.toFixed(3), "~", top.toFixed(3) + ")");
+}
 if (FLAGS.includes("skin")) {
   const SKIN = [250, 226, 205]; // 곱슬머리 인형(meshy-child) 얼굴 평균
   const prim = root.listMeshes()[0].listPrimitives()[0], tex = prim.getMaterial().getBaseColorTexture();

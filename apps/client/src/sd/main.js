@@ -71,7 +71,7 @@ initSideControls();
 const THREE = window.THREE, SPR = window.SPRITES;
 if (!THREE || !SPR) throw new Error("three.min.js / sprites-data.js 를 불러오지 못함");
 // 시험 스위치
-// MESHY_DOLL: Meshy 로 만든 인형(여자 meshy-mint · 남자 meshy-boy · 곱슬머리 meshy-curly)을 입힌다. 처음 화면에서 인형만 고르고, 꾸미기·친구 바꾸기는 숨긴다
+// MESHY_DOLL: Meshy 로 만든 인형(마루 · 하늘 · 펭귄 · 알파카)을 입힌다. 처음 화면에서 인형만 고르고, 꾸미기·친구 바꾸기는 숨긴다
 // ACCOUNT_FORM: false 면 닉네임·PIN 입력을 숨기고, 이 기기에 저장한 손님 계정(무작위 닉네임 + PIN)으로 자동 로그인한다
 const MESHY_DOLL = true, ACCOUNT_FORM = false;
 const MAP = await fetch("/maps/park.json").then((r) => { if (!r.ok) throw new Error(`park.json ${r.status}`); return r.json(); });
@@ -377,9 +377,9 @@ function buildPerson(l) {
   return { root, body, head: hd, legs, arms, food, face, tails, blink: 2, top: 0.3 + 0.72 + (HAT_TOP[l.hat] ?? 0.37) * HEAD_K };
 }
 // ───────── Meshy 인형 (MESHY_DOLL): 뼈대가 든 GLB 하나를 사람마다 복제해 입힌다 ─────────
-// 인형 여섯 벌(여자 meshy-mint · 남자 meshy-boy · 곱슬머리 meshy-child · 헤어롤 meshy-woman · 펭귄 meshy-penguin, 각 약 360~560KB · 알파카 meshy-alpaca 1.5MB): 텍스처 512 JPEG · 좌표 양자화 · meshopt 압축. 동작 idle · walk · run · sit(의자에 앉기) · wave(한 손 안녕).
+// 인형 네 벌(마루 meshy-child · 하늘 meshy-woman · 펭귄 meshy-penguin, 각 약 360~420KB · 알파카 meshy-alpaca 1.5MB): 텍스처 512 JPEG · 좌표 양자화 · meshopt 압축. 동작 idle · walk · run · sit(의자에 앉기) · wave(한 손 안녕).
 // 곱슬머리(meshy-child)는 Meshy 웹에서 받은 동작 묶음이라 jump 가 더 있다: 폴짝은 jump 동작으로. (wave 가 없는 인형은 팔 뼈를 돌려 안녕한다)
-// 어느 인형을 입을지는 꾸미기 값의 머리 모양으로 정한다 (short = 남자, curly = 곱슬머리, roller = 헤어롤, penguin = 펭귄, alpaca = 알파카, 그 밖 = 여자). 서버의 꾸미기 키 형식을 그대로 쓰려고.
+// 어느 인형을 입을지는 꾸미기 값의 머리 모양으로 정한다 (curly·short = 마루, penguin = 펭귄, alpaca = 알파카, 그 밖(roller·long…) = 하늘). 서버의 꾸미기 키 형식을 그대로 쓰려고.
 // idle 은 안녕 동작의 첫 장면(정면을 보고 두 발을 나란히, 두 팔은 내림) 한 장면이다 (Meshy Idle 은 둘러보며 한 발이 앞에 있어서).
 // 만들 때 손본 것: 걷기·뛰기의 엉덩이·허리 흔들림을 줄였고, 머리카락은 머리 뼈만 따라가게 했다 (팔을 들어도 옆머리가 끌려가지 않게).
 // 키 1m 로 만들었고 발 = 원점, +z 를 본다. 뼈대(Armature)에 0.01 배율이 걸려 있어 뼈 좌표는 cm.
@@ -387,13 +387,14 @@ function buildPerson(l) {
 const DOLL_H = 1.45;
 // 인형마다: 파일, 머리 뼈 배율·전체 배율·가로 배율 (남자 인형은 머리가 작고 몸이 가늘게 나와 여자 인형 비율에 맞춘다. 키는 그대로), 앉기 보정(없으면 DOLL_SIT)
 const DOLL_KINDS = {
-  girl: { file: "/models/meshy-mint.glb", head: 1, scale: 1, wide: 1 },
-  boy: { file: "/models/meshy-boy.glb", head: 1.25, scale: 0.91, wide: 1.15 },
   // 곱슬머리: 키 1.2 로 만들어져 1 로 줄인다. 앉기(뒤돌아보고 앉는 동작의 마지막 장면)는 엉덩이가 덜 내려가고 덜 빠져서, 여자 인형 엉덩이 자리에 맞게 올리고 조금만 민다
   curly: { file: "/models/meshy-child.glb", head: 1, scale: 1 / 1.2, wide: 1, sit: { down: -0.075, fwd: 0.042 } },
-  // 헤어롤(긴 머리 여자, meshy-doll-clips.mjs longhair): 키 1.2. 앉기 동작이 없어 같은 Meshy 뼈대인 곱슬머리의 앉기 자세를 빌린다(sitFrom).
-  // 폴짝(Happy_jump, 9.8초 동안 여러 번 뛴다)은 0.7초부터 한 번 뛰는 만큼만 제 빠르기로
-  roller: { file: "/models/meshy-woman.glb", head: 1, scale: 1 / 1.2, wide: 1, sit: { down: -0.075, fwd: 0.042 }, sitFrom: "curly", jump: { from: 0.7, speed: 1 } },
+  // 헤어롤 자리(파란 후드 긴 머리 소녀 Little Dreamer, scripts/fix-dreamer-rig.mjs → meshy-doll-clips.mjs → fix-meshy-walk-width.mjs): 키 1.4 로 만들어져 여자 인형 키로 줄인다.
+  // 동작은 idle(기본 자세에서 팔을 내린 한 장면) · walk · run 뿐: 안녕은 팔 뼈를 돌려 흔들고, 폴짝은 몸 전체를 튀긴다. 앉기는 같은 Meshy 뼈대인 곱슬머리의 앉기 자세를 빌린다(sitFrom).
+  // 앉기 보정: 빌린 자세의 골반 높이(곱슬머리 뼈 단위)가 키 배율만큼 낮아져서, 곱슬머리와 같은 엉덩이 높이가 되게 down = -0.075 - 0.185·DOLL_H·(1/1.2 - 1/1.4)
+  // 빌린 앉기 자세는 고개를 27° 숙이고 등이 굽어 게임 카메라에서는 정수리만 보인다: 허리를 펴고 고개를 들어(sitFix, DOLL_WAVE 와 같은 형식) 얼굴이 보이게
+  roller: { file: "/models/meshy-woman.glb", head: 1, scale: 1 / 1.4, wide: 1, h: 1.4, sit: { down: -0.107, fwd: 0.036 }, sitFrom: "curly",
+    sitFix: [["Spine1", 1, 0, 0, -0.15], ["Spine2", 1, 0, 0, -0.15], ["Head", 1, 0, 0, -0.2]] },
   // 펭귄(scripts/meshy-penguin.mjs): 키 0.8 그대로 (사람보다 작게). 동작을 직접 만들어 안녕 팔 보정(DOLL_WAVE)은 하지 않는다 (waveFix).
   // 앉기는 엉덩이가 거의 바닥까지 내려가 여자 인형 엉덩이 높이만큼 올리고, 몸이 둥글어 등받이에 묻히지 않게 앞으로 민다
   penguin: { file: "/models/meshy-penguin.glb", head: 1, scale: 1, wide: 1, h: 0.8, waveFix: false, sit: { down: -0.19, fwd: 0.1 } },
@@ -402,7 +403,8 @@ const DOLL_KINDS = {
   // 앉기는 좌판 높이에 맞춰 6cm 올리고, 모델의 뒤로 치우친 골반을 4cm 앞으로 맞춘다.
   alpaca: { file: "/models/meshy-alpaca.glb", head: 1, scale: 1 / 1.7, wide: 1, h: 1.7, boneUnit: 1, sit: { down: -0.06, fwd: 0.04 } },
 };
-const dollKind = (l) => (l.hair === "short" ? "boy" : l.hair === "curly" ? "curly" : l.hair === "roller" ? "roller" : l.hair === "penguin" ? "penguin" : l.hair === "alpaca" ? "alpaca" : "girl");
+// 여자·남자 인형은 뺐다: 예전 꾸미기 값(짧은 머리 = 남자)은 마루, 그 밖(긴 머리 = 여자)은 하늘로 입힌다
+const dollKind = (l) => (l.hair === "short" || l.hair === "curly" ? "curly" : l.hair === "penguin" ? "penguin" : l.hair === "alpaca" ? "alpaca" : "roller");
 // 앉기 동작은 엉덩이를 6cm 내리고 19cm 뒤로 뺀다(키 1 기준). 예전 인형의 엉덩이 자리(벤치 + 0.46)에 맞게 인형을 내리고 앞으로 민다
 const DOLL_SIT = { down: 0.03, fwd: 0.2 };
 // 안녕: 동작 그대로면 든 손이 볼 옆 옆머리 위에 오므로, 위팔·아래팔을 바깥으로 펴고 고개를 반대쪽으로 살짝 기울인다 (인형 기준 축)
@@ -455,10 +457,11 @@ function buildDoll(kind) {
   for (const [side, name] of [["left", "LeftHand"], ["right", "RightHand"]]) { const a = pivot(0, 0.07 / bu, 0.02 / bu, bone(name)); a.scale.setScalar(1 / (DOLL_H * K.scale * bu)); food[side] = { anchor: a, key: "" }; }
   // 안녕 동작이 있으면 그 위에 팔을 펴는 보정(DOLL_WAVE), 없으면 팔 뼈를 돌려서 흔든다 (poseDoll)
   const bones = { head: bone("Head"), headScale: K.head, arms: { left: bone("LeftArm"), right: bone("RightArm") }, fore: { left: bone("LeftForeArm"), right: bone("RightForeArm") },
-    wave: act.wave && K.waveFix !== false ? DOLL_WAVE.map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) : [] };
+    wave: act.wave && K.waveFix !== false ? (K.waveBones || DOLL_WAVE).map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z).normalize(), ang]) : [],
+    sit: (K.sitFix || []).map(([n, x, y, z, ang]) => [bone(n), new THREE.Vector3(x, y, z), ang]) };
   // AnimationMixer may skip writing unchanged keyframes. Restore its last
   // unmodified pose before every update so procedural rotations never accumulate.
-  const posed = [...new Set([bones.head, ...Object.values(bones.arms), bone("LeftForeArm"), bone("RightForeArm"), ...bones.wave.map(([b]) => b)])];
+  const posed = [...new Set([bones.head, ...Object.values(bones.arms), bone("LeftForeArm"), bone("RightForeArm"), ...bones.wave.map(([b]) => b), ...bones.sit.map(([b]) => b)])];
   const basePose = posed.map((b) => [b, b.quaternion.clone()]);
   const arm = {};
   for (const [side, sign] of [["left", 1], ["right", -1]]) arm[side] = {
@@ -508,6 +511,7 @@ function poseDoll(c, m, dt, now, seat) {
   // 팔 바깥으로 펴기 · 고개 기울이기는 팔을 드는 만큼만 (들 때 서서히 더하고, 내릴 때 서서히 뺀다)
   const raise = standWave ? smooth01(d.waveT, ...DOLL_WAVE_T.up) * (1 - smooth01(d.waveT, ...DOLL_WAVE_T.down)) : 0, wv = d.w.wave * raise;
   if (wv > 0.01) for (const [b, axis, ang] of d.bones.wave) turnBone(b, m.root, axis, ang * wv);
+  if (d.w.sit > 0.01) for (const [b, axis, ang] of d.bones.sit) turnBone(b, m.root, axis, ang * d.w.sit);
   m.body.position.set(0, -d.sit.down * d.w.sit, d.sit.fwd * d.w.sit);
   m.body.scale.y = c.moving || seat ? 1 : 1 + Math.sin(now * 2.6) * 0.012;
   m.body.rotation.z = c.act?.kind === "shiver" ? (Math.floor(c.act.t / 0.07) % 2 ? 0.04 : -0.04) : 0;
@@ -1366,12 +1370,11 @@ if (DOLL) {
 // 들어온 뒤 '친구' 단추로 다시 열면 모습만 바꾼다 (닉네임은 계정이라 그대로)
 const profile = loadProfile();
 const lobby = { mode: profile.nickname ? "login" : "signup", busy: false, checkTimer: 0, checkAbort: null, signedUp: false };
-// Meshy 인형: 여자 · 남자 · 곱슬머리 · 헤어롤 · 펭귄 · 알파카 여섯 가지 (머리 모양으로 인형이 정해진다. 지난번에 고른 쪽을 기억한다)
+// Meshy 인형: 마루(곱슬머리) · 하늘(파란 후드 긴 머리) · 펭귄 · 알파카 네 가지 (머리 모양으로 인형이 정해진다. 지난번에 고른 쪽을 기억한다)
+// 탭 순서는 index.html #genderTabs 의 data-i 와 같다
 const DOLL_PICKS = [
-  { name: "여자", note: "", look: { ...DEFAULT_LOOK, hair: "long" } },
-  { name: "남자", note: "", look: { ...DEFAULT_LOOK, hair: "short", outfit: "coat" } },
-  { name: "곱슬머리", note: "", look: { ...DEFAULT_LOOK, hair: "curly", outfit: "coat" } },
-  { name: "헤어롤", note: "", look: { ...DEFAULT_LOOK, hair: "roller", outfit: "coat" } },
+  { name: "마루", note: "", look: { ...DEFAULT_LOOK, hair: "curly", outfit: "coat" } },
+  { name: "하늘", note: "", look: { ...DEFAULT_LOOK, hair: "roller", outfit: "coat" } },
   { name: "펭귄", note: "", look: { ...DEFAULT_LOOK, hair: "penguin", outfit: "coat" } },
   { name: "알파카", note: "", look: { ...DEFAULT_LOOK, hair: "alpaca", outfit: "coat" } },
 ];

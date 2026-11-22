@@ -36,3 +36,4 @@ winter-village/
 
 # 지도 편집기가 덮어쓰기 전에 남기는 이전 지도 (로컬 전용)
 assets/maps/.backup/
+.ua/*
