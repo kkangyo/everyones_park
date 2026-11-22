@@ -134,3 +134,20 @@ node scripts/meshy-penguin.mjs assets/models/Meshy_AI_Penguin_motion.glb assets/
   `node scripts/whiten-meshy-fur.mjs assets/models/meshy-penguin.glb assets/models/meshy-penguin.glb` (초록·파랑이 밝은 크림 화소만 채도 0.25 로 줄이고 밝기를 흰색 쪽으로 0.5 올린다. 노란 패딩·빨간 목도리·주황 부리·발·분홍 볼은 그대로. 더 희게: 뒤에 `[채도] [밝기]` 예 `0.1 0.7`). meshy-penguin.mjs 를 다시 돌렸으면 이것도 다시 돌린다.
 - 원본 파일은 그대로 둔다. 키 0.8 이다.
 - 게임: `DOLL_KINDS.penguin` (머리 모양 값 `penguin`, 첫 화면 '펭귄' 탭). 키 그대로(사람보다 작게) · 안녕 팔 보정(`DOLL_WAVE`) 안 함 · 앉기 보정 `down -0.19, fwd 0.1`(앉으면 엉덩이가 거의 바닥이라 여자 인형 엉덩이 높이로 올린다).
+
+## 6. 알파카 리깅 수정 (Meshy 자동 리깅, 2족 SD 비인간형)
+
+```
+python3 scripts/fix-alpaca-rig.py assets/models/Meshy_AI_Cozy_Alpaca_Reference_Texture_20261121_animated_mixamo_All_animation.glb assets/models/Meshy_AI_Cozy_Alpaca_rigfix.glb
+```
+
+- Meshy 자동 리깅은 사람 뼈대(Mixamo)를 큰 머리 동물에 그대로 씌워 가중치가 엉망이었다: 왼손 밑 `Bone_028` 이 머리 속에 있어 팔을 흔들면 머리·귀가 찌그러짐 · 위팔을 어깨 뼈가 잡아 팔이 안 따라옴 · 머리 가중치가 가슴·팔로 번짐 · 발바닥을 정강이가 잡음.
+- 스크립트: `Bone_028`·왼손에만 있던 손가락 뼈 삭제 → 어깨 뼈 좌우 대칭 → 가중치를 위치로 새로 칠함(머리·귀는 Head 하나, 몸통·목도리·꼬리는 척추 높이 순, 소매는 팔 축 반지름, 짧은 다리는 높이 순, 가랑이 위 가운데는 Hips).
+- **걸음 11자**: 서 있는 자세는 무릎·발목이 x ±0.149 인데 Mixamo 걷기·달리기가 다리를 엉덩이 관절(±0.07) 밑으로 곧게 내려 바지·발굽이 가운데서 겹쳤다(X 자). 키마다 허벅지를 돌려 무릎을 서 있을 때 너비로, 정강이·발은 원래 방향을 유지, 벌어져 뜬 만큼 골반을 내린다.
+- **털 색**: 따뜻한 베이지(평균 218,185,150)를 살짝 흰 크림으로. 메시 위치로 털 부위(머리·귀, 코트 밑 다리, 꼬리)만 골라 UV 마스크를 만들고 그 안의 크림색 화소만 채도를 줄이고(`FUR_CHROMA` 0.45) 밝기를 올린다(`FUR_LIFT` 0.35). 코트 밑단·소매 끝 털 장식, 목도리, 분홍 볼·귀 안, 눈·코, 발굽은 그대로. PNG 는 macOS `sips` 로 풀고 묶는다.
+- 원본 파일은 그대로 둔다.
+- **게임용**: `python3 scripts/meshy-alpaca.py assets/models/Meshy_AI_Cozy_Alpaca_rigfix.glb assets/models/meshy-alpaca.glb` (1.5MB)
+  - 뼈 이름의 `mixamorig:` 떼기 · 걷기(11자 보정) = `walk` · 달리기는 버림 · `idle`(팔을 몸 옆에 내리고 숨쉬기·고개 갸웃) · `sit`(허벅지를 들어 짧은 다리를 내밀고 발 까딱)은 뼈를 돌려 만든다 · `wave` 없음(게임이 팔 뼈를 돌려 흔든다) · 텍스처 1024 JPEG(sips).
+  - 메시 압축(meshopt)은 안 했다(다른 인형은 400KB 안팎). gltf-transform 을 설치하면 meshy-doll-clips.mjs 처럼 줄일 수 있다.
+- 게임: `DOLL_KINDS.alpaca` (머리 모양 값 `alpaca`, 첫 화면 '알파카' 탭). 키 1.7 로 만들어져 `scale 1/1.7`(여자 인형 키) · `h 1.7` · 뼈 단위가 m 라 `boneUnit: 1`(손에 든 간식 자리 계산, 다른 인형은 cm) · 앉기 보정 `down -0.3, fwd -0.28`(엉덩이를 벤치 높이로 올리고 좌석 안쪽으로).
+- 확인: `/park3d/rig-viewer/` (원본·수정본을 나란히 재생, 바닥 선은 발목이 지나간 자리). 다른 모델은 `?a=<경로>&b=<경로>`.
